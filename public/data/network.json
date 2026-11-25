@@ -3,7 +3,7 @@
         "title": "Israel Railways: schematic vs. geography",
         "sources": {
             "schematic": "Israel Railways lines & stations map, valid from 14 Nov 2026. Circle centres digitized from the image (1115x1600 px).",
-            "coordinates": "Ministry of Transport GTFS stops (stop_lat/stop_lon). The 2 closed Jerusalem stations use OpenTrain (Public Knowledge Workshop) GTFS-derived coordinates.",
+            "coordinates": "Ministry of Transport GTFS stops (stop_lat/stop_lon). The 2 closed Jerusalem stations use OpenStreetMap station nodes (© OpenStreetMap contributors, ODbL).",
             "lines": "As drawn on the map; one dot per station per line; segments join consecutive dots.",
             "basemap": "Natural Earth 10m land, lakes, rivers, urban areas and major roads (public domain), clipped."
         },
@@ -636,8 +636,8 @@
             "name": "Jerusalem–Biblical Zoo (closed)",
             "name_he": "ירושלים - גן החיות התנ\"כי",
             "gtfs_stop_id": null,
-            "lon": 35.178132,
-            "lat": 31.744952,
+            "lon": 35.178112,
+            "lat": 31.744834,
             "label": "b"
         },
         {
@@ -645,8 +645,8 @@
             "name": "Jerusalem–Malha (closed)",
             "name_he": "ירושלים - מלחה",
             "gtfs_stop_id": null,
-            "lon": 35.188161,
-            "lat": 31.747813,
+            "lon": 35.188215,
+            "lat": 31.747755,
             "label": "b"
         }
     ],

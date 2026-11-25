@@ -83,10 +83,10 @@ S = {
  "BSN": ("Be'er Sheva North–University", "באר שבע - צפון - האוניברסיטה", 37314, 34.809287, 31.262089),
  "BSC": ("Be'er Sheva Center", "באר שבע - מרכז", 37312, 34.798546, 31.242886),
  "DIM": ("Dimona", "דימונה", 37310, 35.011710, 31.068597),
- # Closed stations shown on the map (grey). Not in the GTFS list supplied; coordinates
- # from the OpenTrain (Public Knowledge Workshop) stops.json, itself GTFS-derived (c. 2020).
- "JZO": ("Jerusalem–Biblical Zoo (closed)", "ירושלים - גן החיות התנ\"כי", None, 35.178132, 31.744952),
- "JMA": ("Jerusalem–Malha (closed)", "ירושלים - מלחה", None, 35.188161, 31.747813),
+ # Closed stations shown on the map (grey). Not in the current GTFS feed; coordinates from
+ # OpenStreetMap station nodes 2930682108 (Biblical Zoo) and 2930682106 (Malha), © OpenStreetMap contributors, ODbL.
+ "JZO": ("Jerusalem–Biblical Zoo (closed)", "ירושלים - גן החיות התנ\"כי", None, 35.178112, 31.744834),
+ "JMA": ("Jerusalem–Malha (closed)", "ירושלים - מלחה", None, 35.188215, 31.747755),
 }
 
 # If pipeline/gtfs_rail.py has been run, take coordinates from the feed (matched by GTFS stop_id).
@@ -189,7 +189,7 @@ data = dict(
         title="Israel Railways: schematic vs. geography",
         sources=dict(
             schematic="Israel Railways lines & stations map, valid from 14 Nov 2026. Circle centres digitized from the image (1115x1600 px).",
-            coordinates="Ministry of Transport GTFS stops (stop_lat/stop_lon). The 2 closed Jerusalem stations use OpenTrain (Public Knowledge Workshop) GTFS-derived coordinates.",
+            coordinates="Ministry of Transport GTFS stops (stop_lat/stop_lon). The 2 closed Jerusalem stations use OpenStreetMap station nodes (© OpenStreetMap contributors, ODbL).",
             lines="As drawn on the map; one dot per station per line; segments join consecutive dots.",
             basemap="Natural Earth 10m land, lakes, rivers, urban areas and major roads (public domain), clipped."),
         units="schematic: image pixels, y down"),

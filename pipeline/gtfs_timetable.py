@@ -18,12 +18,13 @@ timetable.json:
   "stations": {key: {"name": str, "name_he": str|null, "lat": num, "lon": num}},  # stations not in network.json
   "services": {service_id: {"days": "1111100", "start": "YYYYMMDD", "end": "YYYYMMDD",
                             "add": [dates], "remove": [dates]}},                 # days: Mon..Sun
-  "trips": [{"id": trip_id, "n": train number|null, "h": headsign|null, "s": service_id,
+  "trips": [{"id": trip_id, "n": train number|null, "h": headsign|null (null when it held the train number), "s": service_id,
              "st": [[station key, arrival min, departure min, platform|null], ...]}]
 }
 Station keys are the ids used in network.json (e.g. "TAU"); stations the map does not show get "G<stop_id>".
+The destination of a trip, as on the station boards, is its last station (st[-1]).
 """
-import csv, io, json, os, sys, urllib.request, zipfile
+import csv, io, json, math, os, sys, urllib.request, zipfile
 from collections import defaultdict
 from datetime import datetime, timezone
 
@@ -106,6 +107,22 @@ def main():
                 return key_of_gtfs[sid]
         return "G" + (parent.get(stop_id) or stop_id)
 
+    # A station can have more than one GTFS stop (e.g. HaMifratz Central: coastal platforms 37388 and
+    # Valley-line platforms 42507, 400 m apart). An unmapped stop whose name equals a map station's Hebrew
+    # name, within 1 km, is treated as that station; each such match is listed in the report.
+    by_he = {s["name_he"]: s for s in net["stations"]}
+    aliases = []
+    for sid in sorted(used):
+        if station_key(sid).startswith("G") and sid in stops:
+            r = stops[sid]
+            m = by_he.get(r["stop_name"].split("/")[0].strip())
+            if m and r.get("stop_lat"):
+                la1, lo1, la2, lo2 = map(math.radians, (float(r["stop_lat"]), float(r["stop_lon"]), m["lat"], m["lon"]))
+                d = 2 * 6371000 * math.asin(math.sqrt(math.sin((la2 - la1) / 2) ** 2 + math.cos(la1) * math.cos(la2) * math.sin((lo2 - lo1) / 2) ** 2))
+                if d < 1000:
+                    key_of_gtfs[sid] = m["id"]
+                    aliases.append(f"  stop {sid} '{r['stop_name']}' -> {m['id']} ({m['name']}), {d:.0f} m from its main stop")
+
     extra = {}
     for sid in used:
         k = station_key(sid)
@@ -126,6 +143,11 @@ def main():
             s = services.setdefault(r["service_id"], {"days": "0000000", "start": None, "end": None, "add": [], "remove": []})
             (s["add"] if r["exception_type"] == "1" else s["remove"]).append(r["date"])
 
+    # Train number: trip_short_name if the feed has it. The MOT feed leaves it empty and puts the train number in
+    # trip_headsign instead; that is used only when every headsign is purely numeric. The destination shown to
+    # users is then the trip's last station, which is in the data anyway.
+    heads = [clean(t.get("trip_headsign")) for t in trips.values()]
+    numeric_heads = not fields["trip_short_name (train number)"] and heads and all(h and h.isdigit() for h in heads)
     out_trips = []
     for tid, v in times.items():
         t = trips[tid]
@@ -133,7 +155,8 @@ def main():
         for _, sid, arr, dep, _hs in sorted(v):
             plat = clean(stops.get(sid, {}).get("platform_code")) if fields["stops.platform_code"] else None
             st.append([station_key(sid), arr, dep, plat])
-        out_trips.append({"id": tid, "n": clean(t.get("trip_short_name")), "h": clean(t.get("trip_headsign")),
+        number = clean(t.get("trip_headsign")) if numeric_heads else clean(t.get("trip_short_name"))
+        out_trips.append({"id": tid, "n": number, "h": None if numeric_heads else clean(t.get("trip_headsign")),
                           "s": t["service_id"], "st": st})
     out_trips.sort(key=lambda x: (x["st"][0][2] if x["st"] and x["st"][0][2] is not None else 0, x["id"]))
 
@@ -151,12 +174,17 @@ def main():
     lines += ["", f"rail trips: {len(out_trips)}, services: {len(services)}, feed dates {data['feed']['start']} - {data['feed']['end']}",
               f"stations served: {len({s[0] for t in out_trips for s in t['st']})} (of which not on the map: {len(extra)})",
               f"timetable.json: {os.path.getsize(path) / 1e6:.2f} MB"]
+    lines += ["", "train numbers: " + ("taken from trip_headsign (all values numeric; trip_short_name missing)" if numeric_heads
+              else "trip_short_name" if fields["trip_short_name (train number)"] else "not available"),
+              "destination: " + ("last station of each trip" if numeric_heads else "trip_headsign")]
+    if aliases:
+        lines += ["", "== Extra GTFS stops mapped to map stations =="] + aliases
     if extra:
         lines += ["", "== Stations served by trains but not on the map =="] + [f"  {k}: {v['name']}" for k, v in sorted(extra.items())]
     lines += ["", "== Sample trips (check what the train number and destination look like) =="]
     for t in out_trips[:: max(1, len(out_trips) // 8)][:8]:
         r = routes[trips[t["id"]]["route_id"]]
-        lines.append(f"  trip_id={t['id']}  trip_short_name={t['n']!r}  headsign={t['h']!r}  "
+        lines.append(f"  trip_id={t['id']}  train={t['n']!r}  headsign={t['h']!r}  "
                      f"route_short_name={clean(r.get('route_short_name'))!r}  route_long_name={clean(r.get('route_long_name'))!r}  "
                      f"first={t['st'][0][0]} {t['st'][0][2]}  last={t['st'][-1][0]} {t['st'][-1][1]}  stops={len(t['st'])}")
     os.makedirs(OUT, exist_ok=True)

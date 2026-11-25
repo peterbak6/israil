@@ -1,0 +1,18 @@
+Copyright (c) 2026 Peter Bak · VisualAnalytics (https://visualanalytics.co.il)
+All rights reserved.
+
+This licence covers the source code and documentation in this repository.
+No permission is granted to copy, modify, distribute or host this software,
+in whole or in part, without the prior written permission of the copyright holder.
+
+Data files are not covered by this licence and keep their own terms:
+- public/data/tracks.json and the closed-station coordinates are derived from
+  OpenStreetMap, © OpenStreetMap contributors, and are available under the
+  Open Database License 1.0 (https://opendatacommons.org/licenses/odbl/1-0/).
+- public/data/timetable.json and GTFS-derived station coordinates come from the
+  Israel Ministry of Transport GTFS feed and are subject to its terms of use.
+- public/data/basemap.json is derived from Natural Earth (public domain).
+- The schematic layout in public/data/network.json and pipeline/sources/circles.json
+  is derived from the Israel Railways lines & stations map, © Israel Railways.
+
+See the "Sources and licences" section of README.md for details.

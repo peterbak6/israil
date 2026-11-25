@@ -8,21 +8,33 @@ connect them.
 
 © 2026 Peter Bak · [VisualAnalytics](https://visualanalytics.co.il)
 
-Contents: [Sources](#sources) · [Data pipeline](#data-pipeline) · [Data files](#data-files) ·
+Contents: [Sources and licences](#sources-and-licences) · [Data pipeline](#data-pipeline) · [Data files](#data-files) ·
 [Keeping the data up to date](#keeping-the-data-up-to-date) · [Interpolation](#interpolation) · [App](#app) ·
 [Develop](#develop) · [Deploy](#deploy)
 
 ---
 
-## Sources
+## Sources and licences
 
-| What | Source | Licence / terms |
-|---|---|---|
-| Schematic layout (station dots, line order) | Israel Railways "lines & stations" map, valid from 14 Nov 2026 | © Israel Railways. The image is not committed; only the digitized circle centres are (`pipeline/sources/circles.json`). |
-| Station coordinates | Ministry of Transport GTFS feed, `stops.txt` (gtfs.mot.gov.il) | Israeli government open data |
-| Closed stations (Jerusalem Biblical Zoo, Malha) | OpenTrain project, Public Knowledge Workshop (GTFS-derived, c. 2020) | Not in the current feed |
-| Real track geometry | OpenStreetMap, `railway=rail`, via the Overpass API | © OpenStreetMap contributors, [ODbL](https://www.openstreetmap.org/copyright). Credit shown on the map whenever tracks are visible. |
-| Basemap (land, lakes, rivers, urban areas, roads) | Natural Earth 10m | Public domain |
+| What | Source | Licence / terms | What we do about it |
+|---|---|---|---|
+| Schematic layout (station dots, line order, label sides) | Israel Railways "lines & stations" map, valid from 14 Nov 2026 | © Israel Railways. No licence is published. | The image is not committed; only the digitized circle centres are (`pipeline/sources/circles.json`). The layout in `network.json` is derived from their design, so **permission from Israel Railways is needed before the site is made public.** |
+| Station coordinates and timetable | Ministry of Transport GTFS feed `israel-public-transportation.zip` ([gov.il page](https://www.gov.il/he/pages/gtfs_general_transit_feed_specifications)) | Terms of use on that page: using or downloading the feed means accepting them; the Ministry may change them at any time without notice; no liability for errors, omissions or outdated data. No named open licence and no attribution requirement. | Credit "Ministry of Transport GTFS" anyway. Show only scheduled times, never estimates. Use only the production feed (the page says `Gtfs_10_days.zip` is for development and testing only). Re-read the terms when updating the pipeline. |
+| Closed stations (Jerusalem Biblical Zoo, Malha) | OpenStreetMap station nodes [2930682108](https://www.openstreetmap.org/node/2930682108) and [2930682106](https://www.openstreetmap.org/node/2930682106) | © OpenStreetMap contributors, [ODbL](https://www.openstreetmap.org/copyright) | Same as the track geometry below. |
+| Real track geometry (`tracks.json`) | OpenStreetMap, `railway=rail`, via the Overpass API | © OpenStreetMap contributors, [ODbL](https://opendatacommons.org/licenses/odbl/1-0/) | Credit shown on the map whenever tracks are visible. `tracks.json` is a derived database and is itself available under the ODbL (see below). |
+| Basemap (land, lakes, rivers, urban areas, roads) | Natural Earth 10m | Public domain | Nothing required; credited here. |
+| JavaScript libraries (React, d3, Vite, Wrangler…) | npm | MIT / ISC / Apache-2.0 | Their licence notices are kept in the build. |
+
+Not used: the unofficial `rail.co.il` API. It depends on a key taken from the Israel Railways website, so the
+public site does not call it.
+
+**Data licences in this repository.** `public/data/tracks.json` and the two closed-station coordinates are
+derived from OpenStreetMap and are made available under the Open Database License 1.0
+(© OpenStreetMap contributors). `public/data/timetable.json` and the GTFS-derived station coordinates are subject
+to the Ministry of Transport terms above. `public/data/basemap.json` is public domain (Natural Earth). The
+schematic layout in `public/data/network.json` and `pipeline/sources/circles.json` is derived from the Israel
+Railways map and remains subject to their copyright. Everything else (code and documentation) is covered by
+[LICENSE](LICENSE).
 
 The OpenStreetMap credit is the one source credit that stays in the UI. The licence requires it wherever the data
 is shown, so it appears at the bottom left of the map once the slider leaves 0%.
