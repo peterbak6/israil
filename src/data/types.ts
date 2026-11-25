@@ -55,3 +55,11 @@ export interface Basemap {
 }
 
 export type Lang = "en" | "he";
+
+/** Real track geometry per pair of consecutive stations (pipeline/osm_tracks.py).
+ * Key "A|B" with A < B alphabetically; coordinates run from A to B. */
+export interface Tracks {
+  source: string;
+  osm_base?: string | null;
+  segments: Record<string, { km: number; c: Ring }>;
+}

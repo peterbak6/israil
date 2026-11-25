@@ -55,7 +55,11 @@ pip install -r pipeline/requirements.txt
 python pipeline/gtfs_rail.py          # optional: downloads the MOT GTFS feed, writes coordinates + check report
 python pipeline/build_network.py      # uses pipeline/sources/gtfs_stations.json if present
 python pipeline/build_basemap.py      # needs Natural Earth 10m GeoJSON files in pipeline/sources/
+python pipeline/osm_tracks.py         # real track per station-to-station segment from OpenStreetMap -> public/data/tracks.json
 ```
+
+`pipeline/out/tracks_report.txt` lists segments without track geometry; the app draws those straight.
+Each segment is resampled to 64 points on both sides, and every point moves linearly between them.
 
 `pipeline/out/check_report.txt` lists stations that moved, new stations, and map lines whose stop order does not
 match any GTFS stop pattern.
@@ -65,6 +69,7 @@ match any GTFS stop pattern.
 - Schematic: Israel Railways lines & stations map, valid from 14 Nov 2026 (circle centres digitized)
 - Station coordinates and stop order: Ministry of Transport GTFS feed (gtfs.mot.gov.il)
 - Basemap: Natural Earth 10m land, lakes, rivers, urban areas, roads (public domain)
+- Track geometry: © OpenStreetMap contributors (ODbL), via the Overpass API
 
 ## Deploy to Cloudflare
 

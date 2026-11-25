@@ -22,3 +22,18 @@ describe("geometry", () => {
     expect(easeInOut(0)).toBe(0); expect(easeInOut(1)).toBe(1); expect(easeInOut(0.5)).toBeCloseTo(0.5);
   });
 });
+
+import { resample } from "../src/core/geometry";
+describe("resample", () => {
+  it("returns n evenly spaced points, keeping both ends", () => {
+    const r = resample([[0, 0], [10, 0], [10, 10]], 5);
+    expect(r).toHaveLength(5);
+    expect(r[0]).toEqual([0, 0]);
+    expect(r[4]).toEqual([10, 10]);
+    expect(r[2]).toEqual([10, 0]); // halfway along the 20-unit path
+  });
+  it("handles a straight two-point line", () => {
+    const r = resample([[0, 0], [6, 8]], 3);
+    expect(r[1]).toEqual([3, 4]);
+  });
+});

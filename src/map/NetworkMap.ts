@@ -1,9 +1,9 @@
 import { select } from "d3-selection";
 import { zoom, zoomIdentity, type ZoomBehavior, type ZoomTransform } from "d3-zoom";
-import type { Basemap, Lang, Line, Network, Ring, Station } from "../data/types";
-import { fitter, lerp, project, type Pt } from "../core/geometry";
+import type { Basemap, Lang, Line, Network, Ring, Station, Tracks } from "../data/types";
+import { fitter, lerp, project, resample, type Pt } from "../core/geometry";
 import { blockAt, labelLines, placeGeographic, placementOrder, schematicLabelRefs, type LabelBlock, type LabelStyle } from "../core/labels";
-import { legStations, type TripOption } from "../core/routing";
+import type { TripOption } from "../core/routing";
 
 const NS = "http://www.w3.org/2000/svg";
 const el = <K extends keyof SVGElementTagNameMap>(tag: K, cls?: string, parent?: Element) => {
@@ -13,6 +13,11 @@ const el = <K extends keyof SVGElementTagNameMap>(tag: K, cls?: string, parent?:
   return e;
 };
 const pts = (ps: Pt[]) => ps.map((p) => p[0].toFixed(1) + "," + p[1].toFixed(1)).join(" ");
+
+/** Points per station-to-station segment, on both the schematic and the geographic side. */
+export const SEGMENT_POINTS = 64;
+/** A stretch of a line between two of its stops (indices into line.stops). */
+type Span = { line: string; i0: number; i1: number };
 
 /** What is highlighted. Selected stations always stay visible on top of this. */
 type Focus = { segs: Set<string>; dots: Set<string>; labels: Set<string>; links: Set<string>; route?: boolean } | null;
@@ -31,6 +36,10 @@ export interface MapCallbacks {
  * Positions: every dot has a schematic position A and a geographic position B (both fitted to the
  * viewport). At slider value t it is drawn at lerp(A, B, t), then the zoom transform is applied to
  * the position only, so dots, lines and labels keep their pixel size when zooming.
+ *
+ * Lines: each segment between two consecutive stops is resampled to SEGMENT_POINTS points twice:
+ * along the schematic straight line, and along the real track (or a straight line where no track
+ * geometry exists). Point k moves linearly from its schematic to its geographic position.
  */
 export class NetworkMap {
   private svg: SVGSVGElement;
@@ -51,16 +60,18 @@ export class NetworkMap {
   private refs: ReturnType<typeof schematicLabelRefs>;
   private order: string[];
   private dotEls = new Map<string, SVGCircleElement>();
-  private segEls: [SVGPolylineElement, string[]][] = [];
-  private hitEls: [SVGPolylineElement, string[]][] = [];
+  private segEls: [SVGPolylineElement, Span][] = [];
+  private hitEls: [SVGPolylineElement, Span][] = [];
+  /** per line, per segment: resampled schematic and geographic points */
+  private segGeom = new Map<string, { sch: Pt[]; geo: Pt[] }[]>();
   private linkEls: [SVGPolylineElement[], string[], string][] = [];
   private lblEls = new Map<string, SVGTextElement>();
-  private routeEls: [SVGPolylineElement, string[]][] = [];
+  private routeEls: [SVGPolylineElement, Span][] = [];
   private geoCache: { key: string; blocks: Map<string, LabelBlock> } = { key: "", blocks: new Map() };
   private ctx = document.createElement("canvas").getContext("2d")!;
   private ro: ResizeObserver;
 
-  constructor(private host: HTMLElement, private net: Network, private base: Basemap, private cb: MapCallbacks) {
+  constructor(private host: HTMLElement, private net: Network, private base: Basemap, private tracks: Tracks, private cb: MapCallbacks) {
     this.st = new Map(net.stations.map((s) => [s.id, s]));
     this.refs = schematicLabelRefs(net);
     this.order = placementOrder(net);
@@ -124,17 +135,17 @@ export class NetworkMap {
   private build() {
     const { net } = this;
     for (const l of net.lines) {
-      const ids = l.stops.map((k) => `${k}.${l.id}`);
+      const span: Span = { line: l.id, i0: 0, i1: l.stops.length - 1 };
       const seg = el("polyline", "seg" + (l.inactive ? " inactive" : ""), this.g.segs);
       seg.setAttribute("stroke", l.color);
       seg.dataset.line = l.id;
-      this.segEls.push([seg, ids]);
+      this.segEls.push([seg, span]);
       const hit = el("polyline", "hit", this.g.hits); // wide invisible copy, easy to hover or tap
       hit.addEventListener("pointerenter", (ev) => { if (ev.pointerType === "mouse") this.hoverLine(l, ev); });
       hit.addEventListener("pointermove", (ev) => this.moveTip(ev));
       hit.addEventListener("pointerleave", (ev) => { if (ev.pointerType === "mouse") this.unhover(); });
       hit.addEventListener("click", (ev) => this.hoverLine(l, ev));
-      this.hitEls.push([hit, ids]);
+      this.hitEls.push([hit, span]);
     }
     // Bars joining the dots of one station, ordered along their main axis.
     for (const s of net.stations) {
@@ -182,6 +193,23 @@ export class NetworkMap {
       const s = this.st.get(c.station)!;
       this.B.set(c.id, fG(project(s.lon, s.lat)));
     }
+    // Segment geometry: schematic straight line vs real track (straight where none is known).
+    this.segGeom.clear();
+    for (const l of this.net.lines) {
+      const segs = [];
+      for (let i = 1; i < l.stops.length; i++) {
+        const a = l.stops[i - 1], b = l.stops[i];
+        const ca = `${a}.${l.id}`, cb = `${b}.${l.id}`;
+        const key = a < b ? `${a}|${b}` : `${b}|${a}`;
+        const tr = this.tracks.segments[key];
+        const mid = tr ? (a < b ? tr.c : [...tr.c].reverse()).map(([lo, la]) => fG(project(lo, la))) : [];
+        segs.push({
+          sch: resample([this.A.get(ca)!, this.A.get(cb)!], SEGMENT_POINTS),
+          geo: resample([this.B.get(ca)!, ...mid, this.B.get(cb)!], SEGMENT_POINTS),
+        });
+      }
+      this.segGeom.set(l.id, segs);
+    }
     const path = (r: Ring) => "M" + r.map(([lo, la]) => fG(project(lo, la)).map((v) => v.toFixed(1)).join(",")).join("L");
     const b = this.base;
     this.g.land.innerHTML =
@@ -202,7 +230,8 @@ export class NetworkMap {
       for (const leg of o.legs) {
         const e = el("polyline", "rt", this.g.route);
         e.setAttribute("stroke", leg.line.color);
-        this.routeEls.push([e, legStations(leg).map((k) => `${k}.${leg.line.id}`)]);
+        const i = leg.line.stops.indexOf(leg.from), j = leg.line.stops.indexOf(leg.to);
+        this.routeEls.push([e, { line: leg.line.id, i0: Math.min(i, j), i1: Math.max(i, j) }]);
       }
   }
 
@@ -233,7 +262,15 @@ export class NetworkMap {
     const r = this.r();
     for (const [id, d] of this.dotEls) { const p = P.get(id)!; d.setAttribute("cx", String(p[0])); d.setAttribute("cy", String(p[1])); d.setAttribute("r", String(r)); }
     for (const [pair, ids] of this.linkEls) { const s = pts(ids.map((i) => P.get(i)!)); pair.forEach((e) => e.setAttribute("points", s)); }
-    for (const [e, ids] of [...this.segEls, ...this.hitEls, ...this.routeEls]) e.setAttribute("points", pts(ids.map((i) => P.get(i)!)));
+    // Lines: interpolate every resampled point, then cut spans (whole lines, trip legs) out of it.
+    const S = SEGMENT_POINTS - 1, full = new Map<string, Pt[]>();
+    for (const [line, segs] of this.segGeom) {
+      const out: Pt[] = [];
+      segs.forEach((g, k) => { for (let i = k ? 1 : 0; i < SEGMENT_POINTS; i++) out.push(this.V(lerp(g.sch[i], g.geo[i], this.t))); });
+      full.set(line, out);
+    }
+    for (const [e, sp] of [...this.segEls, ...this.hitEls, ...this.routeEls])
+      e.setAttribute("points", pts((full.get(sp.line) ?? []).slice(sp.i0 * S, sp.i1 * S + 1)));
 
     // Labels move like the dots: a straight line from the map position to the geographic position.
     if (this.labelsOn) {

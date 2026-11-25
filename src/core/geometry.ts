@@ -24,3 +24,19 @@ export const boxesOverlap = (a: Box, b: Box) => a[0] < b[2] && a[2] > b[0] && a[
 
 /** Cubic ease-in-out, used only for timing the Play animation. */
 export const easeInOut = (u: number) => (u < 0.5 ? 4 * u ** 3 : 1 - (-2 * u + 2) ** 3 / 2);
+
+/** Resample a polyline to n points evenly spaced along its length (first and last points kept). */
+export function resample(pts: Pt[], n: number): Pt[] {
+  const cum = [0];
+  for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+  const total = cum[cum.length - 1];
+  if (pts.length < 2 || total === 0) return Array.from({ length: n }, () => [pts[0][0], pts[0][1]] as Pt);
+  const out: Pt[] = [];
+  for (let k = 0, j = 1; k < n; k++) {
+    const d = (k / (n - 1)) * total;
+    while (j < pts.length - 1 && cum[j] < d) j++;
+    const u = (d - cum[j - 1]) / (cum[j] - cum[j - 1] || 1);
+    out.push(lerp(pts[j - 1], pts[j], Math.min(1, Math.max(0, u))));
+  }
+  return out;
+}

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Basemap, Network } from "./data/types";
+import type { Basemap, Network, Tracks } from "./data/types";
 import { loadData } from "./data/load";
 import { findTrips, nextSelection } from "./core/routing";
 import { easeInOut } from "./core/geometry";
@@ -9,7 +9,7 @@ import { SettingsMenu } from "./ui/SettingsMenu";
 import { loadSettings, saveSettings, type Settings } from "./core/settings";
 
 export default function App() {
-  const [data, setData] = useState<{ network: Network; basemap: Basemap } | null>(null);
+  const [data, setData] = useState<{ network: Network; basemap: Basemap; tracks: Tracks } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [t, setT] = useState(0);
   const [settings, setSettings] = useState<Settings>(loadSettings);
@@ -76,15 +76,19 @@ export default function App() {
           <strong>Coordinates:</strong> {src.coordinates}<br />
           <strong>Lines:</strong> {src.lines}<br />
           <strong>Map:</strong> {src.basemap}
+          {Object.keys(data.tracks.segments).length > 0 && (
+            <><br /><strong>Track:</strong> {data.tracks.source}{data.tracks.osm_base ? `, data as of ${data.tracks.osm_base.slice(0, 10)}` : ""}.
+              {" "}Real track for {Object.keys(data.tracks.segments).length} station-to-station segments; the rest are drawn straight.</>
+          )}
         </div>
         <div className="credit">© 2026 Peter Bak · <a href="https://visualanalytics.co.il" target="_blank" rel="noopener">VisualAnalytics</a></div>
       </aside>
       <main className={t >= 1 ? "geo" : "schem"}>
-        <MapView ref={mapRef} network={data.network} basemap={data.basemap} t={t} size={settings.size} lang={settings.lang}
+        <MapView ref={mapRef} network={data.network} basemap={data.basemap} tracks={data.tracks} t={t} size={settings.size} lang={settings.lang}
           selection={selection} trip={trip}
           onStation={(id) => setSelection((s) => nextSelection(s, id))}
           onBackground={() => setSelection([])} />
-        <div className="badge">{t >= 1 ? "Geographic positions (GTFS)" : t === 0 ? "Schematic layout" : "Interpolating"}</div>
+        <div className="badge">{t >= 1 ? "Geographic: GTFS stations, real track" : t === 0 ? "Schematic layout" : "Interpolating"}</div>
         <SettingsMenu settings={settings} onChange={setSettings} />
         <div className="zoom">
           <button aria-label="Zoom in" onClick={() => mapRef.current?.zoomBy(1.6)}>+</button>

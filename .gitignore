@@ -13,3 +13,5 @@ pipeline/sources/ne_*.geojson
 pipeline/out/
 __pycache__/
 *.tsbuildinfo
+# downloaded OpenStreetMap response (re-creatable, ~MBs)
+pipeline/sources/osm_rail.json

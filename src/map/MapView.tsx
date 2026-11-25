@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
-import type { Basemap, Lang, Network } from "../data/types";
+import type { Basemap, Lang, Network, Tracks } from "../data/types";
 import type { TripOption } from "../core/routing";
 import { NetworkMap } from "./NetworkMap";
 
@@ -8,6 +8,7 @@ export type MapHandle = { zoomBy(k: number): void; resetZoom(): void };
 type Props = {
   network: Network;
   basemap: Basemap;
+  tracks: Tracks;
   t: number;
   size: number;
   lang: Lang | "off";
@@ -25,13 +26,13 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(p, ref) {
   cb.current = { onStation: p.onStation, onBackground: p.onBackground };
 
   useEffect(() => {
-    const m = new NetworkMap(host.current!, p.network, p.basemap, {
+    const m = new NetworkMap(host.current!, p.network, p.basemap, p.tracks, {
       onStation: (id) => cb.current.onStation(id),
       onBackground: () => cb.current.onBackground(),
     });
     map.current = m;
     return () => { m.destroy(); map.current = null; };
-  }, [p.network, p.basemap]);
+  }, [p.network, p.basemap, p.tracks]);
 
   useEffect(() => map.current?.setT(p.t), [p.t]);
   useEffect(() => map.current?.setSize(p.size), [p.size]);
