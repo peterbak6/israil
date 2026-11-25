@@ -22,7 +22,7 @@ export function labelLines(s: Station, lang: Lang): string[] {
 export function blockAt(s: Station, x: number, y: number, mode: LabelMode, st: LabelStyle): LabelBlock {
   const { fs, r, measure, lang } = st;
   const ls = labelLines(s, lang), ws = ls.map(measure), n = ls.length;
-  const g = r + 2.5, lh = fs * 1.1, bw = Math.max(...ws), bh = (n - 1) * lh;
+  const g = r + 4, lh = fs * 1.1, bw = Math.max(...ws), bh = (n - 1) * lh;
   const mid = y + fs * 0.35 - bh / 2, below = y + g + fs * 0.8;
   const [ax, align, first]: [number, number, number] = {
     l: [x - g, 1, mid], lr: [x - g, 1, mid], r: [x + g, 0, mid],

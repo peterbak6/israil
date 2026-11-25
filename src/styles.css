@@ -5,31 +5,30 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); 
 .app { display: grid; grid-template-columns: 300px 1fr; height: 100vh; }
 aside { padding: 18px 18px 12px; border-right: 1px solid var(--line); overflow: auto; display: flex; flex-direction: column; gap: 14px; }
 h1 { font-size: 18px; margin: 0; line-height: 1.25; }
-.intro { margin: 6px 0 0; color: var(--muted); font-size: 13px; }
-.ctrl { display: flex; flex-direction: column; gap: 8px; }
-.row { display: flex; align-items: center; gap: 10px; }
+aside .credit { margin-top: auto; }
+.hint { margin: 0; font-size: 13px; color: var(--muted); }
 .small { font-size: 13px; }
 input[type=range] { flex: 1; accent-color: var(--ink); }
 .pct { font-variant-numeric: tabular-nums; width: 44px; text-align: right; font-weight: 600; }
-.pct.light { font-weight: 400; }
 select { font: inherit; font-size: 13px; padding: 2px 4px; border: 1px solid var(--line); border-radius: 5px; background: #fff; }
 button { font: inherit; border: 1px solid var(--ink); background: var(--ink); color: #fff; border-radius: 6px; padding: 4px 12px; cursor: pointer; }
 button.ghost { align-self: flex-start; background: #fff; color: var(--ink); border-color: var(--line); font-size: 12px; padding: 2px 10px; }
-.ends { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
 .m { color: var(--muted); }
 .trip { font-size: 13px; display: flex; flex-direction: column; gap: 6px; }
 .trip .opt { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; line-height: 1.5; }
 .trip .ln { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; }
 .trip .ln i { width: 14px; height: 4px; border-radius: 2px; display: inline-block; }
-.note { font-size: 11.5px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 10px; }
-.note strong { color: var(--ink); }
 .credit { font-size: 11.5px; color: var(--muted); }
 .credit a { color: inherit; }
 
 main { position: relative; overflow: hidden; background: var(--sea); transition: background .45s ease-in-out; }
 main.schem { background: var(--bg); }
 .map-host { position: absolute; inset: 0; }
-.badge { position: absolute; left: 12px; top: 10px; font-size: 12px; color: var(--muted); background: rgba(255,255,255,.8); padding: 3px 8px; border-radius: 4px; pointer-events: none; }
+.morph { position: absolute; left: 12px; right: 64px; top: 10px; z-index: 2; display: flex; align-items: center; gap: 10px; background: rgba(255,255,255,.92); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; box-shadow: 0 1px 4px rgba(0,0,0,.06); font-size: 12px; color: var(--muted); max-width: 640px; }
+.morph input { flex: 1; min-width: 80px; }
+.morph .pct { color: var(--ink); width: 40px; }
+.attrib { position: absolute; left: 8px; bottom: 6px; font-size: 10.5px; color: var(--muted); background: rgba(255,255,255,.8); padding: 1px 6px; border-radius: 3px; }
+.attrib a { color: inherit; }
 .zoom { position: absolute; right: 12px; bottom: 12px; display: flex; flex-direction: column; gap: 6px; }
 .zoom button { width: 40px; height: 40px; padding: 0; font-size: 20px; line-height: 1; background: #fff; color: var(--ink); border: 1px solid var(--line); box-shadow: 0 1px 4px rgba(0,0,0,.08); }
 .zoom button.rs { font-size: 12px; }
@@ -66,19 +65,22 @@ svg.map:active { cursor: grabbing; }
 .dot.sel { stroke: #111; stroke-width: 2.6; }
 .link-o { stroke: #2b2f3a; stroke-width: var(--lo, 7.3px); stroke-linecap: round; stroke-linejoin: round; fill: none; }
 .link-i { stroke: #fff; stroke-width: var(--li, 4.3px); stroke-linecap: round; stroke-linejoin: round; fill: none; }
-.lbl { font-size: var(--fs, 10px); fill: var(--ink); paint-order: stroke; stroke: var(--bg); stroke-width: 2px; stroke-linejoin: round; pointer-events: none; }
+.lbl { font-size: var(--fs, 10px); fill: var(--ink); paint-order: stroke; stroke: var(--bg); stroke-width: 2px; stroke-linejoin: round; cursor: pointer; }
 .seg, .dot, .link-o, .link-i, .lbl, .rt { transition: opacity .3s ease-in-out; }
 .net.dim .seg, .net.dim .dot, .net.dim .link-o, .net.dim .link-i { opacity: .12; }
 .net.route .seg, .net.route .dot, .net.route .link-o, .net.route .link-i { opacity: .07; }
 .net .hl, .net .dot.sel { opacity: 1 !important; }
 .labels.dim .lbl { opacity: .15; }
 .labels.dim .lbl.hl { opacity: 1; }
-.labels .lbl.sel { opacity: 1; font-weight: 600; }
+.labels .lbl.sel { opacity: 1; fill: #000; } /* no bold: it would change the measured label width */
+.lbl.probe { visibility: hidden; pointer-events: none; }
+.labels[style*="display: none"] .lbl { pointer-events: none; }
 .tip { position: absolute; pointer-events: none; background: #fff; border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px; font-size: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.08); display: none; max-width: 240px; }
 
 @media (max-width: 760px) {
+  .morph { right: 60px; gap: 6px; padding: 6px 8px; }
+  .morph span { display: none; }
   .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; height: auto; min-height: 100vh; }
   aside { border-right: 0; border-bottom: 1px solid var(--line); padding: 12px 14px; gap: 10px; }
-  .hide-m { display: none; }
   main { height: 78vh; }
 }

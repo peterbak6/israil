@@ -25,11 +25,18 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(p, ref) {
   const cb = useRef({ onStation: p.onStation, onBackground: p.onBackground });
   cb.current = { onStation: p.onStation, onBackground: p.onBackground };
 
+  const latest = useRef(p);
+  latest.current = p;
+
   useEffect(() => {
     const m = new NetworkMap(host.current!, p.network, p.basemap, p.tracks, {
       onStation: (id) => cb.current.onStation(id),
       onBackground: () => cb.current.onBackground(),
     });
+    // A map created after the first render (e.g. new data) must start from the current settings,
+    // not its defaults: the per-setting effects below only run when that setting changes.
+    const q = latest.current;
+    m.setSize(q.size); m.setLang(q.lang); m.setSelection(q.selection, q.trip); m.setT(q.t);
     map.current = m;
     return () => { m.destroy(); map.current = null; };
   }, [p.network, p.basemap, p.tracks]);

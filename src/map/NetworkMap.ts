@@ -68,7 +68,9 @@ export class NetworkMap {
   private lblEls = new Map<string, SVGTextElement>();
   private routeEls: [SVGPolylineElement, Span][] = [];
   private geoCache: { key: string; blocks: Map<string, LabelBlock> } = { key: "", blocks: new Map() };
-  private ctx = document.createElement("canvas").getContext("2d")!;
+  /** label widths measured with the real SVG text (canvas measurement can differ slightly) */
+  private textW = new Map<string, number>();
+  private probe: SVGTextElement | null = null;
   private ro: ResizeObserver;
 
   constructor(private host: HTMLElement, private net: Network, private base: Basemap, private tracks: Tracks, private cb: MapCallbacks) {
@@ -85,13 +87,14 @@ export class NetworkMap {
     this.build();
 
     this.zoomer = zoom<SVGSVGElement, unknown>()
-      .scaleExtent([1, 16])
+      .scaleExtent([1, 16]) // never smaller than the full view
       .clickDistance(5)
       .on("zoom", (ev) => { this.view = ev.transform; this.render(); });
     select(this.svg).call(this.zoomer);
     this.svg.addEventListener("click", (ev) => {
       const c = (ev.target as Element).classList;
-      if (!c.contains("dot") && !c.contains("hit")) { this.hideTip(); this.cb.onBackground(); }
+      const onStation = c.contains("dot") || c.contains("hit") || !!(ev.target as Element).closest?.(".lbl");
+      if (!onStation) { this.hideTip(); this.cb.onBackground(); }
     });
 
     this.ro = new ResizeObserver(() => this.layout());
@@ -104,6 +107,7 @@ export class NetworkMap {
   // ---------- public API ----------
   setT(t: number) { this.t = t; this.render(); }
   setSize(fs: number) {
+    if (fs !== this.fs) this.textW.clear();
     this.fs = fs;
     const r = this.r();
     this.host.style.setProperty("--fs", fs + "px");
@@ -171,6 +175,13 @@ export class NetworkMap {
     for (const s of net.stations) {
       const t = el("text", "lbl", this.g.labels);
       t.setAttribute("direction", "ltr");
+      // a label selects and hovers its station, like the station's dots
+      t.addEventListener("pointerenter", (ev) => { if (ev.pointerType === "mouse") this.hoverStation(s.id, ev); });
+      t.addEventListener("pointerleave", (ev) => { if (ev.pointerType === "mouse") this.unhover(); });
+      t.addEventListener("click", (ev) => {
+        if ((ev as PointerEvent).pointerType !== "mouse") this.hoverStation(s.id, ev);
+        this.cb.onStation(s.id);
+      });
       this.lblEls.set(s.id, t);
       this.setLabelText(s);
     }
@@ -186,8 +197,15 @@ export class NetworkMap {
   private layout() {
     const w = this.host.clientWidth, h = this.host.clientHeight;
     if (!w || !h) return;
-    const fS = fitter(this.net.copies.map((c) => [c.sx, c.sy] as Pt), w, h);
-    const fG = fitter(this.net.stations.map((s) => project(s.lon, s.lat)), w, h);
+    // Panning is free, but the map can't leave the screen completely: at least 30% of it stays in view
+    // (the viewport may move up to 70% of its size past each edge). Zooming out stops at the full view.
+    const KEEP = 0.3, mx = w * (1 - KEEP), my = h * (1 - KEEP);
+    this.zoomer.extent([[0, 0], [w, h]]).translateExtent([[-mx, -my], [w + mx, h + my]]);
+    select(this.svg).call(this.zoomer.transform, this.view); // re-clamp the current view to the new size
+    this.textW.clear();
+    const TOP = 56; // room for the slider bar drawn over the top of the map
+    const fS = fitter(this.net.copies.map((c) => [c.sx, c.sy] as Pt), w, h, 28, TOP);
+    const fG = fitter(this.net.stations.map((s) => project(s.lon, s.lat)), w, h, 28, TOP);
     for (const c of this.net.copies) {
       this.A.set(c.id, fS([c.sx, c.sy]));
       const s = this.st.get(c.station)!;
@@ -239,8 +257,19 @@ export class NetworkMap {
   private V = (p: Pt): Pt => [p[0] * this.view.k + this.view.x, p[1] * this.view.k + this.view.y];
 
   private style(): LabelStyle {
-    this.ctx.font = `${this.fs}px system-ui,-apple-system,"Segoe UI",Roboto,sans-serif`;
-    return { fs: this.fs, r: this.r(), lang: this.lang, measure: (s) => this.ctx.measureText(s).width };
+    return { fs: this.fs, r: this.r(), lang: this.lang, measure: (s) => this.measure(s) };
+  }
+
+  private measure(text: string): number {
+    const key = this.fs + "|" + text;
+    let w = this.textW.get(key);
+    if (w === undefined) {
+      if (!this.probe) { this.probe = el("text", "lbl probe", this.svg); this.probe.setAttribute("direction", "ltr"); }
+      this.probe.textContent = text;
+      w = this.probe.getComputedTextLength();
+      this.textW.set(key, w);
+    }
+    return w;
   }
 
   /** Geographic label positions for the final (100%) dot positions at the current zoom; cached. */

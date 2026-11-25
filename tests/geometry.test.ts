@@ -37,3 +37,11 @@ describe("resample", () => {
     expect(r[1]).toEqual([3, 4]);
   });
 });
+
+describe("fitter top inset", () => {
+  it("keeps points below the reserved top area", () => {
+    const f = fitter([[0, 0], [10, 50]], 400, 600, 28, 56);
+    expect(f([0, 0])[1]).toBeGreaterThanOrEqual(56 + 28 - 1e-9);
+    expect(f([10, 50])[1]).toBeLessThanOrEqual(600 - 28 + 1e-9);
+  });
+});

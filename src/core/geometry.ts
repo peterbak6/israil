@@ -9,13 +9,14 @@ export const lerp = (a: Pt, b: Pt, t: number): Pt => [a[0] + (b[0] - a[0]) * t, 
 const tm = geoTransverseMercator().rotate([-35.2044, -31.7344]).scale(1).translate([0, 0]);
 export const project = (lon: number, lat: number): Pt => tm([lon, lat]) as Pt;
 
-/** Returns a function that fits points into a w×h box with padding, preserving aspect ratio. */
-export function fitter(pts: Pt[], w: number, h: number, padY = 28): (p: Pt) => Pt {
+/** Returns a function that fits points into a w×h box with padding, preserving aspect ratio.
+ * `top` reserves extra space at the top (for controls drawn over the map). */
+export function fitter(pts: Pt[], w: number, h: number, padY = 28, top = 0): (p: Pt) => Pt {
   const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
   const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
   const padX = Math.max(padY, Math.min(90, w * 0.14)); // room for labels at the sides
-  const k = Math.min((w - 2 * padX) / (x1 - x0 || 1), (h - 2 * padY) / (y1 - y0 || 1));
-  const ox = (w - k * (x1 - x0)) / 2, oy = (h - k * (y1 - y0)) / 2;
+  const k = Math.min((w - 2 * padX) / (x1 - x0 || 1), (h - top - 2 * padY) / (y1 - y0 || 1));
+  const ox = (w - k * (x1 - x0)) / 2, oy = top + (h - top - k * (y1 - y0)) / 2;
   return (p) => [ox + (p[0] - x0) * k, oy + (p[1] - y0) * k];
 }
 

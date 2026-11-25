@@ -14,4 +14,8 @@ these are small fixes, in the UI/UX, please fix on the go.
     b. final data schema
     c. interpolation algorithms for points and paths
 
-8. 
+-- new fixes...
+
+8. selecting a station should also work when clicking the label
+9. panning stopped working: penning within the bounding box should be possible, but you should not completely leave the box... the penning works great on desktop but ont on mobile.
+10. when selecting you update the top area os everything jumps down. dont! we will work out the UX for selection later. and for now we have the tooltip... 
