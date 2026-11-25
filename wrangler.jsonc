@@ -9,5 +9,10 @@
     // Only /api/* reaches the Worker code.
     "run_worker_first": ["/api/*"]
   },
-  "observability": { "enabled": true }
+  "observability": { "enabled": true },
+  // Settings for `npx wrangler preview` (remote Preview URLs). Previews do not inherit
+  // production settings, so anything they need goes here; assets stay at the top level.
+  "previews": {
+    "observability": { "enabled": true }
+  }
 }

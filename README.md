@@ -42,7 +42,8 @@ npm install
 npm run dev        # Vite dev server, Worker included
 npm test           # unit tests
 npm run build      # production build into dist/
-npm run preview    # run the production build locally (workerd)
+npm run preview    # run the production build locally (workerd), no Cloudflare account needed
+npx wrangler preview   # build first; uploads a remote Preview URL to your Cloudflare account
 ```
 
 ## Data
