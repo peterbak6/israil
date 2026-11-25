@@ -34,6 +34,19 @@ main.schem { background: var(--bg); }
 .zoom button { width: 40px; height: 40px; padding: 0; font-size: 20px; line-height: 1; background: #fff; color: var(--ink); border: 1px solid var(--line); box-shadow: 0 1px 4px rgba(0,0,0,.08); }
 .zoom button.rs { font-size: 12px; }
 
+/* settings */
+.settings { position: absolute; right: 12px; top: 10px; z-index: 2; }
+.settings .gear { width: 40px; height: 40px; padding: 0; display: grid; place-items: center; background: #fff; color: var(--ink); border: 1px solid var(--line); box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+.settings .gear[aria-expanded=true] { border-color: var(--ink); }
+.settings .panel { position: absolute; right: 0; top: 46px; width: 250px; background: #fff; border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.12); padding: 12px; display: flex; flex-direction: column; gap: 12px; font-size: 13px; }
+.settings .field { display: flex; flex-direction: column; gap: 6px; }
+.settings .field span { display: flex; justify-content: space-between; }
+.settings .seg { display: flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.settings .seg button { flex: 1; border: 0; border-radius: 0; background: #fff; color: var(--ink); padding: 6px 4px; font-size: 13px; }
+.settings .seg button + button { border-left: 1px solid var(--line); }
+.settings .seg button.on { background: var(--ink); color: #fff; }
+.small { font-size: 12px; }
+
 /* map */
 svg.map { width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; user-select: none; -webkit-user-select: none; }
 svg.map:active { cursor: grabbing; }

@@ -1,23 +1,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Basemap, Lang, Network } from "./data/types";
+import type { Basemap, Network } from "./data/types";
 import { loadData } from "./data/load";
 import { findTrips, nextSelection } from "./core/routing";
 import { easeInOut } from "./core/geometry";
 import { MapView, type MapHandle } from "./map/MapView";
 import { TripPanel } from "./ui/TripPanel";
+import { SettingsMenu } from "./ui/SettingsMenu";
+import { loadSettings, saveSettings, type Settings } from "./core/settings";
 
 export default function App() {
   const [data, setData] = useState<{ network: Network; basemap: Basemap } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [t, setT] = useState(0);
-  const [size, setSize] = useState(10);
-  const [lang, setLang] = useState<Lang | "off">("en");
+  const [settings, setSettings] = useState<Settings>(loadSettings);
   const [selection, setSelection] = useState<string[]>([]);
   const [playing, setPlaying] = useState(false);
   const mapRef = useRef<MapHandle>(null);
   const anim = useRef<number | null>(null);
 
   useEffect(() => { loadData().then(setData).catch((e) => setError(String(e))); }, []);
+  useEffect(() => saveSettings(settings), [settings]);
 
   const trip = useMemo(
     () => (data && selection.length === 2 ? findTrips(data.network, selection[0], selection[1]) : null),
@@ -67,19 +69,6 @@ export default function App() {
             <span className="pct">{Math.round(t * 100)}%</span>
           </div>
           <div className="ends"><span>Schematic</span><span>Geographic (land shown at 100%)</span></div>
-          <label className="row small">
-            Station names
-            <select value={lang} onChange={(e) => setLang(e.target.value as Lang | "off")}>
-              <option value="en">English</option>
-              <option value="he">עברית</option>
-              <option value="off">Off</option>
-            </select>
-          </label>
-          <label className="row small">
-            Label &amp; dot size
-            <input type="range" min={6} max={18} step={1} value={size} onChange={(e) => setSize(+e.target.value)} />
-            <span className="pct light">{size}px</span>
-          </label>
         </div>
         <TripPanel network={data.network} selection={selection} trip={trip} onClear={() => setSelection([])} />
         <div className="note hide-m">
@@ -91,11 +80,12 @@ export default function App() {
         <div className="credit">© 2026 Peter Bak · <a href="https://visualanalytics.co.il" target="_blank" rel="noopener">VisualAnalytics</a></div>
       </aside>
       <main className={t >= 1 ? "geo" : "schem"}>
-        <MapView ref={mapRef} network={data.network} basemap={data.basemap} t={t} size={size} lang={lang}
+        <MapView ref={mapRef} network={data.network} basemap={data.basemap} t={t} size={settings.size} lang={settings.lang}
           selection={selection} trip={trip}
           onStation={(id) => setSelection((s) => nextSelection(s, id))}
           onBackground={() => setSelection([])} />
         <div className="badge">{t >= 1 ? "Geographic positions (GTFS)" : t === 0 ? "Schematic layout" : "Interpolating"}</div>
+        <SettingsMenu settings={settings} onChange={setSettings} />
         <div className="zoom">
           <button aria-label="Zoom in" onClick={() => mapRef.current?.zoomBy(1.6)}>+</button>
           <button aria-label="Zoom out" onClick={() => mapRef.current?.zoomBy(1 / 1.6)}>−</button>

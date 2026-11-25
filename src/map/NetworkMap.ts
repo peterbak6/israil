@@ -266,10 +266,12 @@ export class NetworkMap {
   private routeFocus(): Focus {
     if (!this.trip || this.sel.length !== 2) return null;
     const [A, B] = this.sel;
-    const f = { segs: new Set<string>(), dots: new Set<string>(), labels: new Set([A, B]), links: new Set<string>(), route: true };
+    const f = { segs: new Set<string>(), dots: new Set<string>(), labels: new Set([A, B]), links: new Set([A, B]), route: true };
     for (const o of this.trip)
       for (const g of o.legs) {
         f.dots.add(`${g.from}.${g.line.id}`); f.dots.add(`${g.to}.${g.line.id}`);
+        // the start and end stations show all their dots, so their bars read as one station
+        for (const k of [g.from, g.to]) if (k === A || k === B) for (const c of this.net.copies) if (c.station === k) f.dots.add(c.id);
         for (const k of [g.from, g.to]) if (k !== A && k !== B) { f.labels.add(k); f.links.add(k); }
       }
     return f;
