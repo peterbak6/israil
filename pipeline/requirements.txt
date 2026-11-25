@@ -1,0 +1,5 @@
+# build_basemap.py
+shapely>=2.0
+# detect_circles.py / sample_colors.py (only needed to re-digitize the map image)
+opencv-python-headless>=4.8
+numpy>=1.24

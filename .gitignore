@@ -1,0 +1,15 @@
+node_modules
+dist
+.wrangler
+.dev.vars
+*.local
+.DS_Store
+# pipeline inputs that are large or not ours to redistribute
+pipeline/sources/*.zip
+pipeline/sources/*.jpg
+pipeline/sources/*.png
+pipeline/sources/*.pdf
+pipeline/sources/ne_*.geojson
+pipeline/out/
+__pycache__/
+*.tsbuildinfo

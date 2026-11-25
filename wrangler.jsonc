@@ -1,0 +1,13 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "israil",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-11-01",
+  "assets": {
+    // Static files (the React app and /data/*.json) are served first; unknown paths fall back to the SPA.
+    "not_found_handling": "single-page-application",
+    // Only /api/* reaches the Worker code.
+    "run_worker_first": ["/api/*"]
+  },
+  "observability": { "enabled": true }
+}

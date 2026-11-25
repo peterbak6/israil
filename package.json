@@ -1,0 +1,38 @@
+{
+  "name": "israil",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -b",
+    "test": "vitest run",
+    "deploy": "npm run build && wrangler deploy"
+  },
+  "dependencies": {
+    "d3-ease": "^3.0.2",
+    "d3-geo": "^3.1.2",
+    "d3-selection": "^3.0.1",
+    "d3-zoom": "^3.0.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.70.1",
+    "@cloudflare/workers-types": "^5.20261125.1",
+    "@types/d3-ease": "^3.0.2",
+    "@types/d3-geo": "^3.1.1",
+    "@types/d3-selection": "^3.0.13",
+    "@types/d3-zoom": "^3.0.9",
+    "@types/node": "^26.6.10",
+    "@types/react": "^19.3.2",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8",
+    "vitest": "^5.1.1",
+    "wrangler": "^4.168.0"
+  }
+}
