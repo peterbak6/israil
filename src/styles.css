@@ -2,7 +2,15 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
 .status { padding: 24px; color: var(--muted); }
-.app { display: grid; grid-template-columns: 330px 1fr; height: 100vh; height: 100dvh; }
+.app { display: grid; grid-template-columns: 330px 1fr; grid-template-rows: 52px 1fr; height: 100vh; height: 100dvh; }
+header { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; padding: 0 12px 0 16px; border-bottom: 1px solid var(--line); background: #fff; z-index: 5; }
+.hdr-btns { display: flex; gap: 8px; align-items: center; }
+.undo { width: 40px; height: 40px; padding: 0; display: grid; place-items: center; background: #fff; color: var(--ink); border: 1px solid var(--line); box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+.undo:disabled { opacity: .35; box-shadow: none; }
+button.go { display: grid; place-items: center; width: 52px; height: 40px; padding: 0 0 0 3px; border-radius: 20px; }
+.brand { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.brand b { font-size: 19px; letter-spacing: .2px; }
+.brand span { font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 aside { padding: 16px 16px 10px; border-right: 1px solid var(--line); overflow: hidden; display: flex; flex-direction: column; gap: 12px; min-height: 0; }
 h1 { font-size: 18px; margin: 0; line-height: 1.25; }
 aside .credit { margin-top: auto; }
@@ -64,7 +72,6 @@ button.jrow.past { opacity: .5; }
 .slot input { margin: 0; accent-color: var(--ink); }
 .jd-btns { display: flex; justify-content: space-between; align-items: center; }
 .jd-btns .ghost { align-self: center; }
-button.go { padding: 7px 22px; font-weight: 600; font-size: 15px; }
 ol.legs { list-style: none; margin: 0; padding: 0; font-size: 12.5px; display: flex; flex-direction: column; gap: 6px; }
 ol.legs ul { list-style: none; margin: 4px 0 0; padding: 0 0 0 8px; border-left: 3px solid var(--train, #d5d8dd); }
 ol.legs li.cur ul { border-left-width: 5px; }
@@ -90,17 +97,16 @@ ol.legs .chg { font-size: 12px; font-weight: 600; margin: 2px 0 4px; }
 main { position: relative; overflow: hidden; background: var(--sea); transition: background .45s ease-in-out; }
 main.schem { background: var(--bg); }
 .map-host { position: absolute; inset: 0; }
-.morph { position: absolute; left: 12px; right: 64px; top: 10px; z-index: 2; display: flex; align-items: center; gap: 10px; background: rgba(255,255,255,.92); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; box-shadow: 0 1px 4px rgba(0,0,0,.06); font-size: 12px; color: var(--muted); max-width: 640px; }
+.morph { position: absolute; left: 12px; right: 12px; top: 10px; z-index: 2; display: flex; align-items: center; gap: 10px; background: rgba(255,255,255,.92); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; box-shadow: 0 1px 4px rgba(0,0,0,.06); font-size: 12px; color: var(--muted); max-width: 640px; }
 .morph input { flex: 1; min-width: 80px; }
 .morph .pct { color: var(--ink); width: 40px; }
 .attrib { position: absolute; left: 8px; bottom: 6px; font-size: 10.5px; color: var(--muted); background: rgba(255,255,255,.8); padding: 1px 6px; border-radius: 3px; }
 .attrib a { color: inherit; }
 .zoom { position: absolute; right: 12px; bottom: 12px; display: flex; flex-direction: column; gap: 6px; }
 .zoom button { width: 40px; height: 40px; padding: 0; font-size: 20px; line-height: 1; background: #fff; color: var(--ink); border: 1px solid var(--line); box-shadow: 0 1px 4px rgba(0,0,0,.08); }
-.zoom button.rs { font-size: 12px; }
 
 /* settings */
-.settings { position: absolute; right: 12px; top: 10px; z-index: 2; }
+.settings { position: relative; }
 .settings .gear { width: 40px; height: 40px; padding: 0; display: grid; place-items: center; background: #fff; color: var(--ink); border: 1px solid var(--line); box-shadow: 0 1px 4px rgba(0,0,0,.08); }
 .settings .gear[aria-expanded=true] { border-color: var(--ink); }
 .settings .panel { position: absolute; right: 0; top: 46px; width: 250px; background: #fff; border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.12); padding: 12px; display: flex; flex-direction: column; gap: 12px; font-size: 13px; }
@@ -145,15 +151,49 @@ svg.map:active { cursor: grabbing; }
 .labels[style*="display: none"] .lbl { pointer-events: none; }
 .tip { position: absolute; pointer-events: none; background: #fff; border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px; font-size: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.08); display: none; max-width: 240px; }
 
+/* stages, favourites, day/time, selection chip, cities */
+.app { position: relative; }
+.stages { position: absolute; left: 0; width: 330px; bottom: 34px; grid-row: 2; display: flex; justify-content: center; gap: 12px; z-index: 4; pointer-events: none; }
+.stage { width: 10px; height: 10px; padding: 0; border-radius: 50%; border: 0; background: #c9ccd2; pointer-events: auto; cursor: pointer; }
+.stage.on { background: var(--ink); transform: scale(1.25); }
+.stage:disabled { background: #e6e7ea; cursor: default; }
+aside { padding-bottom: 62px; }
+.when { display: flex; gap: 6px; }
+.when input { flex: 1; min-width: 0; font: inherit; font-size: 14px; border: 1px solid var(--line); border-radius: 7px; padding: 6px 8px; background: #fff; color: var(--ink); }
+.date-field { position: relative; flex: 1.3; display: flex; align-items: center; border: 1px solid var(--line); border-radius: 7px; background: #fff; padding: 6px 10px; font-size: 14px; cursor: pointer; }
+.date-field input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; border: 0; padding: 0; cursor: pointer; }
+.date-field:focus-within { border-color: var(--ink); }
+.when .ghost { font-size: 13px; padding: 4px 12px; }
+.favorites { display: flex; flex-direction: column; gap: 8px; overflow: auto; min-height: 0; }
+.favorites h2 { font-size: 15px; margin: 0; }
+.favorites ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.favorites li { display: flex; gap: 6px; }
+button.fav { flex: 1; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; text-align: left; background: #fff; color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font-size: 14px; }
+button.unstar { width: 42px; flex: none; color: #c98a00; }
+.sel-chip { position: absolute; left: 12px; top: 58px; cursor: pointer; z-index: 2; display: flex; align-items: center; gap: 10px; max-width: calc(100% - 80px); background: rgba(255,255,255,.95); color: var(--ink); border: 1px solid var(--line); border-radius: 18px; padding: 5px 8px 5px 12px; font-size: 13px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+.sel-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sel-chip b { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: #eef0f3; font-size: 12px; flex: none; }
+.cities { pointer-events: none; }
+.city-dot { fill: #8b8f97; stroke: #fff; stroke-width: 1; }
+.city { fill: #6b7079; font-style: italic; paint-order: stroke; stroke: rgba(255,255,255,.85); stroke-width: 2.5px; stroke-linejoin: round; }
+.city.big { fill: #4b5059; font-weight: 600; }
+
 @media (max-width: 760px) {
-  .morph { right: 60px; gap: 6px; padding: 6px 8px; }
+  .morph { gap: 6px; padding: 6px 8px; }
   .morph span { display: none; }
-  /* fixed split, so the map never changes size while planning */
-  .app { grid-template-columns: 1fr; grid-template-rows: 46% 1fr; }
-  .app.go { grid-template-rows: 34% 1fr; }
-  aside { border-right: 0; border-bottom: 1px solid var(--line); padding: 10px 12px 6px; gap: 8px; }
-  aside h1 { font-size: 15px; }
+  html, body { overflow: hidden; overscroll-behavior: none; overscroll-behavior-x: none; }
+  /* one page per screen: 1 the map; 2 favourites, 3 trips, 4 trip in progress (no map; swipe or dots to go back) */
+  .app { grid-template-columns: 1fr; grid-template-rows: 48px 1fr; }
+  header { padding: 0 8px 0 12px; }
+  .brand b { font-size: 17px; }
+  .app > aside, .app > main { grid-area: 2 / 1; }
+  .app[data-page="1"] > aside { display: none; }
+  .app:not([data-page="1"]) > main { display: none; }
+  aside { border-right: 0; padding: 12px 12px 40px; gap: 8px; touch-action: pan-y; }
   aside .credit { font-size: 10.5px; }
+  .stages { position: fixed; left: 0; right: 0; width: auto; bottom: 10px; }
+  /* map controls clear the page dots */
+  .zoom { bottom: 40px; }
+  .attrib { bottom: 34px; }
   .jlist { margin: 0 -12px; padding: 0 12px 10px; }
-  .jp-eta b { font-size: 24px; }
 }

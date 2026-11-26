@@ -56,6 +56,9 @@ export interface Basemap {
 
 export type Lang = "en" | "he";
 
+/** A city or town from OpenStreetMap (public/data/places.json, pipeline/osm_places.py). */
+export interface Place { id: number; en: string | null; he: string | null; lon: number; lat: number; city: boolean; pop: number | null }
+
 /** Real track geometry per pair of consecutive stations (pipeline/osm_tracks.py).
  * Key "A|B" with A < B alphabetically; coordinates run from A to B. */
 export interface Tracks {

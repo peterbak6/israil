@@ -98,3 +98,35 @@ export function placeGeographic(
   }
   return out;
 }
+
+/** A city or town name to place on the geographic map: screen position, text, and importance. */
+export type CityIn = { x: number; y: number; text: string; city: boolean; pop: number | null };
+export type CityOut = { i: number; x: number; y: number; lx: number; ly: number; right: boolean };
+
+/**
+ * Greedy placement of city names, most important first (place=city, then by population; a missing population
+ * counts as a small town). A name goes to the right of its point, else to the left; it is left out if both would
+ * overlap a station label, a station dot, an already placed name, or the screen edge. So zooming in shows more.
+ */
+export function placeCities(cities: CityIn[], avoid: Box[], w: number, h: number, fs: number, measure: Measure, top = 0): CityOut[] {
+  const rank = (c: CityIn) => (c.city ? 1e7 : 0) + (c.pop ?? 15000);
+  const order = cities.map((_, i) => i).sort((a, b) => rank(cities[b]) - rank(cities[a]));
+  const placed: Box[] = [], out: CityOut[] = [];
+  for (const i of order) {
+    const c = cities[i];
+    if (c.x < 0 || c.y < top || c.x > w || c.y > h) continue;
+    const dot: Box = [c.x - 3, c.y - 3, c.x + 3, c.y + 3];
+    if (placed.some((b) => boxesOverlap(dot, b))) continue; // its point is under a bigger place's name
+    const tw = measure(c.text), gap = 4;
+    for (const right of [true, false]) {
+      const lx = right ? c.x + gap : c.x - gap - tw, ly = c.y + fs * 0.35;
+      const box: Box = [lx - 2, c.y - fs * 0.6, lx + tw + 2, c.y + fs * 0.6];
+      if (box[0] < 0 || box[2] > w || box[1] < top || box[3] > h) continue;
+      if (avoid.some((b) => boxesOverlap(box, b)) || placed.some((b) => boxesOverlap(box, b))) continue;
+      placed.push(box, dot);
+      out.push({ i, x: c.x, y: c.y, lx, ly, right });
+      break;
+    }
+  }
+  return out;
+}

@@ -1,23 +1,26 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Basemap, Network, Tracks } from "./data/types";
+import type { Basemap, Network, Place, Tracks } from "./data/types";
 import { loadData } from "./data/load";
 import { loadTimetable, type Timetable } from "./data/timetable";
 import { changeCombos, comboWith, legsVia, planDays, preferredCombo } from "./core/journeys";
 import { NetGraph, optionsOf, pieceShape, routeOf, snapToRoute } from "./core/route";
 import { loadPlanner, nextOd, savePlanner, toggleSaved, type Od } from "./core/planner";
-import { addDays, fmtDur, fmtTime, israelNow } from "./core/time";
+import { daysBetween, fmtDur, fmtTime, israelNow } from "./core/time";
+import { easeInOut } from "./core/geometry";
 import { MapView, type MapHandle } from "./map/MapView";
 import type { MapJourney, MapMe } from "./map/NetworkMap";
 import { SettingsMenu } from "./ui/SettingsMenu";
 import { Planner, type Pick } from "./ui/Planner";
-import { JourneyPanel, type GeoStatus } from "./ui/JourneyPanel";
+import { Favorites } from "./ui/Favorites";
+import { StageDots, type Screen, type Stage } from "./ui/StageDots";
+import { JourneyPanel } from "./ui/JourneyPanel";
 import { loadSettings, saveSettings, type Settings } from "./core/settings";
 
 /** Metres from the route beyond which the marker is drawn hollow. */
 const FAR = 1000;
 
 export default function App() {
-  const [data, setData] = useState<{ network: Network; basemap: Basemap; tracks: Tracks } | null>(null);
+  const [data, setData] = useState<{ network: Network; basemap: Basemap; tracks: Tracks; places: Place[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tt, setTt] = useState<Timetable | null>(null);
   const [ttError, setTtError] = useState<string | null>(null);
@@ -29,10 +32,32 @@ export default function App() {
   const [mode, setMode] = useState<"plan" | "go">("plan");
   const [now, setNow] = useState(() => israelNow());
   const [pos, setPos] = useState<{ lon: number; lat: number } | null>(null);
-  const [geo, setGeo] = useState<GeoStatus>("asking");
-  // the list's "today"; frozen during a journey so passing midnight doesn't drop the journey
+  // Pages. Phone: 1 map, 2 favourites, 3 trips (replaced by the trip in progress after the start button); each
+  // its own screen, and the map shows the current selection, options or trip. Desktop: the map is always visible;
+  // pages are Plan (3) and Favourites (2).
+  const desktop = useDesktop();
+  const [screen, setScreen] = useState<Screen>(() => (window.matchMedia(DESKTOP).matches ? 3 : 1));
+  // day and time the trip list is for; null = today / now
+  const [whenSel, setWhenSel] = useState<{ date: string | null; min: number | null }>({ date: null, min: null });
+  // the list's day; frozen during a journey so passing midnight doesn't drop the journey
   const [goDate, setGoDate] = useState<string | null>(null);
-  const listDate = goDate ?? now.date;
+  const listDate = goDate ?? whenSel.date ?? now.date;
+  const when = { date: listDate, min: whenSel.min ?? now.min, isNow: whenSel.date === null && whenSel.min === null };
+  const anim = useRef(0);
+  const swipe = useRef<{ x: number; y: number } | null>(null);
+  const asideRef = useRef<HTMLElement>(null);
+  // A sideways swipe on a page must not reach the browser, which would treat it as "back" and leave the app.
+  // (React's touch listeners are passive, so this one is added directly.)
+  useEffect(() => {
+    const a = asideRef.current;
+    if (!a) return;
+    const move = (e: TouchEvent) => {
+      const st = swipe.current, t0 = e.touches[0];
+      if (st && t0 && Math.abs(t0.clientX - st.x) > Math.abs(t0.clientY - st.y)) e.preventDefault();
+    };
+    a.addEventListener("touchmove", move, { passive: false });
+    return () => a.removeEventListener("touchmove", move);
+  });
   const mapRef = useRef<MapHandle>(null);
   const planT = useRef(0);
   const watch = useRef<number | null>(null);
@@ -88,6 +113,19 @@ export default function App() {
   const shapes = useMemo(() => (route && data ? route.pieces.map((p) => pieceShape(data.network, data.tracks, p)) : null), [route, data]);
 
   const changeOd = (next: Od) => { setOd(next); setPick(null); };
+  /** Picking stations (map, fields or a favourite): once both are set, the trips stage opens. */
+  const chooseOd = (next: Od) => { changeOd(next); if (next.from && next.to && next.from !== next.to) setScreen(3); };
+  /** Move the slider smoothly to `to` (used when a journey starts). */
+  const glide = (from: number, to: number, ms = 2500) => {
+    cancelAnimationFrame(anim.current);
+    const t0 = performance.now();
+    const step = (now: number) => {
+      const u = Math.min(1, (now - t0) / ms);
+      setT(from + (to - from) * easeInOut(u));
+      if (u < 1) anim.current = requestAnimationFrame(step);
+    };
+    anim.current = requestAnimationFrame(step);
+  };
   const onSlot = (slot: number, station: string) => {
     const c = comboWith(combos, combo, slot, station);
     setPick((p) => (p ? { ...p, combo: c } : p));
@@ -99,26 +137,29 @@ export default function App() {
   const go = () => {
     if (!legs) return;
     planT.current = t;
-    setGoDate(now.date);
-    setT(store.journeyT);
+    setGoDate(listDate);
     setMode("go");
+    if (!desktop) setScreen(1); // phone: the map page, where the marker moves
+    glide(t, 1); // on route: slowly to the geographic view
     lastPiece.current = 0;
     setPos(null);
     // the location is asked for only now, used on this device only and never stored
-    if (!navigator.geolocation) { setGeo("unavailable"); return; }
-    setGeo("asking");
+    if (!navigator.geolocation) return;
     watch.current = navigator.geolocation.watchPosition(
-      (p) => { setPos({ lon: p.coords.longitude, lat: p.coords.latitude }); setGeo("ok"); },
-      (e) => { setGeo(e.code === e.PERMISSION_DENIED ? "denied" : "unavailable"); },
+      (p) => setPos({ lon: p.coords.longitude, lat: p.coords.latitude }),
+      () => setPos(null), // no position: the timetable still works, without the marker
       { enableHighAccuracy: true, maximumAge: 10000, timeout: 30000 },
     );
   };
-  const end = () => { stopWatch(); setPos(null); setMode("plan"); setGoDate(null); setT(planT.current); };
+  const end = () => {
+    cancelAnimationFrame(anim.current);
+    stopWatch(); setPos(null); setMode("plan"); setGoDate(null); setT(planT.current);
+  };
   useEffect(() => stopWatch, []);
-  // frame the journey once the map has the journey's slider value (and, on phones, its new size)
+  // frame the journey as it will look at the end of the glide (and after the screen's new size on phones)
   useEffect(() => {
     if (mode !== "go") { mapRef.current?.resetZoom(); return; }
-    const id = setTimeout(() => mapRef.current?.fitJourney(), 120);
+    const id = setTimeout(() => mapRef.current?.fitJourney(1), 150);
     return () => clearTimeout(id);
   }, [mode]);
 
@@ -132,56 +173,93 @@ export default function App() {
   const live = useMemo(() => {
     if (mode !== "go" || !legs || !route || !pick) return null;
     // the journey's times count from midnight of its own day
-    const nowRel = now.min + (pick.ymd === addDays(now.date, 1) ? -1440 : pick.ymd === addDays(now.date, -1) ? 1440 : 0);
+    const nowRel = now.min - 1440 * daysBetween(now.date, pick.ymd);
     const timeLeg = Math.max(0, legs.findIndex((g) => g.run.arr[g.j] > nowRel));
     const leg = snap ? route.pieces[snap.piece].leg : timeLeg;
-    const until = (m: number) => (m - nowRel >= 1 ? `in ${fmtDur(m - nowRel)}` : `due ${fmtTime(m)}`);
-    const last = legs[legs.length - 1], arr = last.run.arr[last.j];
-    const g = legs[leg];
-    const change = leg < legs.length - 1 ? `Change at ${name(g.run.st[g.j])} ${until(g.run.arr[g.j])}` : null;
-    return {
-      leg, change,
-      big: arr - nowRel >= 1 ? fmtDur(arr - nowRel) : `due ${fmtTime(arr)}`,
-      sub: `to ${name(last.run.st[last.j])} · ${fmtTime(arr)}`,
-    };
+    // a countdown while it is ahead; once the scheduled time has passed, just the time
+    const when = (m: number) => (m - nowRel >= 1 ? `in ${fmtDur(m - nowRel)}` : `at ${fmtTime(m)}`);
+    const last = legs[legs.length - 1], g = legs[leg];
+    // only the next action: the next change, or else the arrival
+    return leg < legs.length - 1
+      ? { leg, what: `Change at ${name(g.run.st[g.j])}`, when: when(g.run.arr[g.j]) }
+      : { leg, what: `Arrive at ${name(last.run.st[last.j])}`, when: when(last.run.arr[last.j]) };
   }, [mode, legs, route, pick, now, snap, name]);
 
   const me = useMemo<MapMe | null>(() => (snap && live
-    ? { piece: snap.piece, frac: snap.frac, far: snap.dist > FAR, lines: live.change ? [live.change] : [], big: live.big, sub: live.sub } : null), [snap, live]);
+    ? { piece: snap.piece, frac: snap.frac, far: snap.dist > FAR, what: live.what, when: live.when } : null), [snap, live]);
 
   const selection = useMemo(() => [od.from, od.to].filter((x): x is string => !!x), [od]);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && mode === "plan" && !(e.target instanceof HTMLInputElement)) changeOd({ from: null, to: null }); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && !(e.target instanceof HTMLInputElement)) clear(); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [mode]);
+  });
+
+  /** The ✕ on the map (or a double tap on empty space) undoes the latest step: a trip in progress, else a
+   * picked trip, else the selected stations. */
+  function clear() {
+    if (mode === "go") end();
+    else if (pick) setPick(null);
+    else changeOd({ from: null, to: null });
+  }
 
   if (error) return <div className="status">Could not load data: {error}</div>;
   if (!data) return <div className="status">Loading…</div>;
 
-  const setSlider = (v: number) => { setT(v); if (mode === "go") setStore((s) => ({ ...s, journeyT: v })); };
+  const setSlider = (v: number) => { cancelAnimationFrame(anim.current); setT(v); };
+  const complete = !!od.from && !!od.to;
+  const odProps = { od, onOd: chooseOd, stations: served, name, store, onToggleSaved: () => setStore((s) => toggleSaved(s, od)) };
+  const page: Screen = desktop ? (screen === 2 ? 2 : 3) : screen;
+  const stages: Stage[] = desktop
+    ? [{ s: 3, label: "Plan", enabled: true }, { s: 2, label: "Favourites", enabled: true }]
+    : [{ s: 1, label: "Map", enabled: true }, { s: 2, label: "Favourites", enabled: true },
+      { s: 3, label: mode === "go" ? "Trip in progress" : "Trips", enabled: true }];
+  // phone: swipe left/right on a page (not on the map, where dragging pans) to go to the next/previous page
+  const onSwipeEnd = (x: number, y: number) => {
+    const st = swipe.current; swipe.current = null;
+    if (desktop || !st || Math.abs(x - st.x) < 70 || Math.abs(x - st.x) < 2 * Math.abs(y - st.y)) return;
+    const order = stages.filter((g) => g.enabled).map((g) => g.s), i = order.indexOf(page);
+    const next = order[i + (x < st.x ? 1 : -1)];
+    if (next) setScreen(next);
+  };
+  const chip = mode === "go" ? "Trip in progress" : od.from || od.to ? `${od.from ? name(od.from) : "…"} → ${od.to ? name(od.to) : "…"}` : null;
 
   return (
-    <div className={"app" + (mode === "go" ? " go" : "")}>
-      <aside>
-        <h1>Israil · Geo-Schematic Map</h1>
-        {mode === "go" && legs && live && pick ? (
-          <JourneyPanel ymd={pick.ymd} legs={legs} name={name} leg={live.leg} change={live.change} big={live.big} sub={live.sub}
-            geo={geo === "ok" && snap && snap.dist > FAR ? "far" : geo} farKm={snap ? snap.dist / 1000 : null} onEnd={end} />
-        ) : (
-          <Planner od={od} onOd={changeOd} stations={served} name={name} store={store}
-            onToggleSaved={() => setStore((s) => toggleSaved(s, od))}
-            days={days} ttError={ttError} opt={opt} feedEnd={tt?.feed.end ?? null} feedPublished={tt?.feed.published ?? null} now={now}
+    <div className={"app" + (mode === "go" ? " go" : "")} data-page={page}>
+      <header>
+        <div className="brand"><b>Israil</b><span>the map ⇄ the track</span></div>
+        <div className="hdr-btns">
+          {/* undo the latest step: end the trip, else unpick the trip, else clear the stations */}
+          <button className="undo" onClick={clear} disabled={!chip}
+            aria-label={mode === "go" ? "End the trip" : pick ? "Unpick the trip" : "Clear the selected stations"}
+            title={mode === "go" ? "End the trip" : pick ? "Unpick the trip" : "Clear the stations"}>
+            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" d="M4 4v6h6M4.6 15a8 8 0 1 0 1.9-8.3L4 10" /></svg>
+          </button>
+          <SettingsMenu settings={settings} onChange={setSettings} />
+        </div>
+      </header>
+      <aside ref={asideRef} onTouchStart={(e) => { swipe.current = { x: e.touches[0].clientX, y: e.touches[0].clientY }; }}
+        onTouchEnd={(e) => onSwipeEnd(e.changedTouches[0].clientX, e.changedTouches[0].clientY)}>
+        {page === 2 ? (
+          <Favorites store={store} name={name} onOpen={chooseOd} onRemove={(a, b) => setStore((s) => toggleSaved(s, { from: a, to: b }))} />
+        ) : mode === "go" && legs && live && pick && page === 3 ? (
+          <JourneyPanel ymd={pick.ymd} legs={legs} name={name} leg={live.leg} onEnd={end} />
+        ) : page === 3 ? (
+          <Planner {...odProps} onOd={changeOd}
+            days={complete ? days : null} ttError={ttError} opt={opt} feedStart={tt?.feed.start ?? null} feedEnd={tt?.feed.end ?? null}
+            feedPublished={tt?.feed.published ?? null} now={now} when={when}
+            onWhen={(date, min) => { setWhenSel({ date: date === now.date ? null : date, min }); setPick(null); }}
             pick={pick && { ...pick, combo }} onPick={setPick} combos={combos} onSlot={onSlot} legs={legs} onGo={go} />
-        )}
+        ) : null}
         <div className="credit">© 2026 Peter Bak · <a href="https://visualanalytics.co.il" target="_blank" rel="noopener">VisualAnalytics</a></div>
       </aside>
+      <StageDots screen={page} stages={stages} onScreen={setScreen} />
       <main className={t >= 1 ? "geo" : "schem"}>
-        <MapView ref={mapRef} network={data.network} basemap={data.basemap} tracks={data.tracks} t={t} size={settings.size} lang={settings.lang}
+        <MapView ref={mapRef} network={data.network} basemap={data.basemap} tracks={data.tracks} places={data.places} t={t} size={settings.size} lang={settings.lang}
           selection={selection} journey={mapJourney ?? options} me={mode === "go" ? me : null}
-          onStation={(id) => { if (mode === "plan") changeOd(nextOd(od, id)); }}
-          onBackground={() => { if (mode === "plan" && !pick) changeOd({ from: null, to: null }); }} />
+          onStation={(id) => { if (mode === "plan") chooseOd(nextOd(od, id)); }}
+          onBackground={clear} />
         <div className="morph">
           <span>Schematic</span>
           <input type="range" min={0} max={100} step={1} value={Math.round(t * 100)} aria-label="Schematic to geographic"
@@ -189,17 +267,33 @@ export default function App() {
           <span>Geographic</span>
           <b className="pct">{Math.round(t * 100)}%</b>
         </div>
+        {chip && (
+          <button className="sel-chip" onClick={clear} title="Clear (or double-tap empty map space)"
+            aria-label={mode === "go" ? "End the trip" : pick ? "Unpick the trip" : "Clear the selected stations"}>
+            <span>{chip}{mode !== "go" && journey ? ` · ${fmtTime(journey.dep)}` : ""}</span><b aria-hidden="true">✕</b>
+          </button>
+        )}
         {/* OpenStreetMap's licence requires this credit wherever its data is shown */}
         {t > 0 && Object.keys(data.tracks.segments).length > 0 && (
-          <div className="attrib">Track © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors</div>
+          <div className="attrib">© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors</div>
         )}
-        <SettingsMenu settings={settings} onChange={setSettings} />
         <div className="zoom">
-          <button aria-label="Zoom in" onClick={() => mapRef.current?.zoomBy(1.6)}>+</button>
-          <button aria-label="Zoom out" onClick={() => mapRef.current?.zoomBy(1 / 1.6)}>−</button>
-          <button aria-label="Reset view" className="rs" onClick={() => mapRef.current?.resetZoom()}>⟲</button>
+          <button aria-label="Zoom in" onClick={() => mapRef.current?.zoomBy(2)}>+</button>
+          <button aria-label="Zoom out" onClick={() => mapRef.current?.zoomBy(0.5)}>−</button>
         </div>
       </main>
     </div>
   );
+}
+
+const DESKTOP = "(min-width: 761px)";
+/** True on wide screens (the map and a side panel side by side). */
+function useDesktop() {
+  const [d, setD] = useState(() => window.matchMedia(DESKTOP).matches);
+  useEffect(() => {
+    const m = window.matchMedia(DESKTOP), on = () => setD(m.matches);
+    m.addEventListener("change", on);
+    return () => m.removeEventListener("change", on);
+  }, []);
+  return d;
 }

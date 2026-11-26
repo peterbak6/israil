@@ -1,9 +1,9 @@
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Station } from "../data/types";
 import { DEFAULT_SEARCH, destination, type Change, type Journey, type Leg, type PlanDay, type SearchOpts } from "../core/journeys";
 import type { Od, PlannerStore } from "../core/planner";
 import { isSaved } from "../core/planner";
-import { fmtDay, fmtDur, fmtTime } from "../core/time";
+import { addDays, fmtDay, fmtDur, fmtTime } from "../core/time";
 import { TRAIN_COLORS } from "../core/route";
 import { StationInput } from "./StationInput";
 
@@ -21,7 +21,11 @@ type Props = {
   ttError: string | null;
   /** the search limits from the settings */
   opt: SearchOpts;
+  feedStart: string | null;
   feedEnd: string | null;
+  /** the day and time the list is for (default: today, now) */
+  when: { date: string; min: number; isNow: boolean };
+  onWhen(date: string | null, min: number | null): void;
   /** when the Ministry published the timetable in use */
   feedPublished: string | null;
   now: { date: string; min: number };
@@ -45,12 +49,11 @@ export function TrainPill({ leg, k, name }: { leg: Leg; k: number; name(id: stri
 
 const changesText = (n: number) => (n === 0 ? "direct" : n === 1 ? "1 change" : `${n} changes`);
 
-/** Step 1–3 of the planner: search, pick a trip, pick the change stations, Go. */
-export function Planner(p: Props) {
+/** From and To fields with swap and star; also used alone on the map stage (desktop). */
+export function OdFields(p: Pick2<Props, "od" | "onOd" | "stations" | "name" | "store" | "onToggleSaved">) {
   const { od, name } = p;
   const complete = !!od.from && !!od.to;
   return (
-    <div className="planner">
       <div className="od">
         <div className="od-fields">
           <StationInput label="From" value={od.from} stations={p.stations} name={name} onChange={(from) => p.onOd({ ...od, from })} />
@@ -62,61 +65,85 @@ export function Planner(p: Props) {
             disabled={!complete} onClick={p.onToggleSaved}>{isSaved(p.store, od) ? "★" : "☆"}</button>
         </div>
       </div>
+  );
+}
+type Pick2<T, K extends keyof T> = { [P in K]: T[P] };
+
+const ymdToInput = (d: string) => `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`;
+const inputToYmd = (v: string) => v.replace(/-/g, "");
+
+/** Stage 3: From/To, day and time, the trips, the change stations, Go. */
+export function Planner(p: Props) {
+  const { od, when } = p;
+  const complete = !!od.from && !!od.to;
+  const minDate = [p.now.date, p.feedStart ?? p.now.date].sort()[1];
+  return (
+    <div className="planner">
+      <OdFields {...p} />
+      <div className="when">
+        {/* the day as "Sun 29 Nov"; the native date picker sits invisibly on top and opens on tap */}
+        <label className="date-field">
+          <span>{fmtDay(when.date)}</span>
+          <input type="date" aria-label="Day" value={ymdToInput(when.date)} min={ymdToInput(minDate)} max={p.feedEnd ? ymdToInput(p.feedEnd) : undefined}
+            onClick={(e) => { try { (e.target as HTMLInputElement).showPicker?.(); } catch { /* not supported: native behaviour */ } }}
+            onChange={(e) => e.target.value && p.onWhen(inputToYmd(e.target.value), when.isNow ? null : when.min)} />
+        </label>
+        <input type="time" aria-label="Time" value={fmtTime(when.min)}
+          onChange={(e) => { const [h, m] = e.target.value.split(":").map(Number); if (!isNaN(h)) p.onWhen(when.date === p.now.date && when.isNow ? null : when.date, h * 60 + (m || 0)); }} />
+        <button className="ghost" disabled={when.isNow} onClick={() => p.onWhen(null, null)}>Now</button>
+      </div>
       {complete && (p.opt.maxChanges !== DEFAULT_SEARCH.maxChanges || p.opt.minChange !== DEFAULT_SEARCH.minChange) && (
         // a filtered list should never be a surprise (the limits are set in the gear menu)
         <p className="filtered">Settings: {p.opt.maxChanges === 0 ? "direct trains only" : `at most ${p.opt.maxChanges} change${p.opt.maxChanges > 1 ? "s" : ""}`}
           {p.opt.minChange > 0 ? ` · at least ${p.opt.minChange} min to change` : ""}</p>
       )}
-      {!complete ? <Saved {...p} /> : <JourneyList {...p} />}
+      {complete && <JourneyList {...p} />}
     </div>
   );
 }
 
-function Saved({ store, name, onOd }: Props) {
-  return (
-    <div className="saved">
-      {store.saved.length > 0 && (
-        <>
-          <div className="m small">Saved searches</div>
-          {store.saved.map((s) => (
-            <button key={s.a + s.b} className="chip" onClick={() => onOd({ from: s.a, to: s.b })}>{name(s.a)} ⇄ {name(s.b)}</button>
-          ))}
-        </>
-      )}
-      <p className="hint">Type a station, or tap two stations on the map. ☆ saves a search; ⇅ swaps its direction.</p>
-    </div>
-  );
-}
+let openedDetail = "";
+/** Where the trip list was scrolled, kept while the page is closed (phone) so it reopens at the same place. */
+const listScroll = { key: "", top: 0 };
 
 function JourneyList(p: Props) {
-  const { days, now, pick, name } = p;
+  const { days, now, pick, name, when } = p;
   const box = useRef<HTMLDivElement>(null), nowMark = useRef<HTMLDivElement>(null);
-  // open at "now": earlier trains are above, later ones below
-  useEffect(() => {
-    // the sticky day header covers the top of the list, so leave room for it
-    if (box.current && nowMark.current) box.current.scrollTop = nowMark.current.offsetTop - box.current.offsetTop - 30;
-  }, [days]);
+  // The list opens at the chosen time (or now) only when the search changes; the clock ticking does not move it,
+  // and coming back to the page restores where it was scrolled.
+  const searchKey = [p.od.from, p.od.to, when.date, when.isNow ? "now" : when.min, p.opt.maxChanges, p.opt.minChange].join("|");
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!el || !days) return;
+    if (listScroll.key === searchKey) el.scrollTop = listScroll.top;
+    else if (nowMark.current) el.scrollTop = nowMark.current.offsetTop - el.offsetTop - 8;
+    listScroll.key = searchKey;
+  }, [searchKey, !!days]);
 
   if (p.ttError) return <p className="hint">Timetable not available ({p.ttError}), so no trains can be shown.</p>;
   if (!days) return <p className="hint">Loading timetable…</p>;
   if (!days[0].covered)
-    return <p className="hint">The timetable data in this app ends on {p.feedEnd ? fmtDay(p.feedEnd) : "an earlier date"}, so no trains can be shown. It needs an update.</p>;
+    return <p className="hint">{p.feedEnd && when.date > p.feedEnd
+      ? `The timetable in this app runs until ${fmtDay(p.feedEnd)}, so there are no trains to show for ${fmtDay(when.date)} yet.`
+      : `There is no timetable for ${fmtDay(when.date)} in this app.`}</p>;
+  const dayName = (ymd: string) => (ymd === now.date ? "Today · " : ymd === addDays(now.date, 1) ? "Tomorrow · " : "") + fmtDay(ymd);
+  const markText = when.isNow ? `now ${fmtTime(now.min)}` : fmtTime(when.min);
 
   let marked = false;
   return (
-    <div className="jlist" ref={box}>
-      {!pick && <p className="hint tip-pick">The map shows all connections in this list. Tap a trip to see only that one.</p>}
+    <div className="jlist" ref={box} onScroll={(e) => { listScroll.top = e.currentTarget.scrollTop; listScroll.key = searchKey; }}>
       {days.filter((d) => d.covered).map((d, di) => (
         <Fragment key={d.ymd}>
-          <div className="day">{di === 0 ? "Today" : "Tomorrow"} · {fmtDay(d.ymd)}</div>
+          {di > 0 && <div className="day">{dayName(d.ymd)}</div>}
           {!d.journeys.length && <p className="hint">No trains between these stations on this day (within two changes).</p>}
           {d.journeys.map((j) => {
-            const past = di === 0 && j.dep < now.min;
-            const mark = !past && !marked && (marked = true);
+            // trains already gone are greyed out (only today); the list opens at the chosen time
+            const past = d.ymd === now.date && j.dep < now.min;
+            const mark = di === 0 && j.dep >= when.min && !marked && (marked = true);
             const open = pick?.ymd === d.ymd && pick.key === j.key;
             return (
               <Fragment key={j.key}>
-                {mark && <div className="now" ref={nowMark}><span>now {fmtTime(now.min)}</span></div>}
+                {mark && <div className="now" ref={nowMark}><span>{markText}</span></div>}
                 <button className={"jrow" + (past ? " past" : "") + (open ? " open" : "")} aria-expanded={open}
                   onClick={() => p.onPick(open ? null : { ymd: d.ymd, key: j.key, combo: -1 })}>
                   <span className="l1"><b>{fmtTime(j.dep)} – {fmtTime(j.arr)}</b><span className="m">{fmtDur(j.arr - j.dep)} · {changesText(j.changes)}</span></span>
@@ -127,7 +154,7 @@ function JourneyList(p: Props) {
             );
           })}
           {/* the now line after the last train of today */}
-          {di === 0 && !marked && (marked = true) && <div className="now" ref={nowMark}><span>now {fmtTime(now.min)} · no more trains today</span></div>}
+          {di === 0 && !marked && (marked = true) && <div className="now" ref={nowMark}><span>{markText} · no more trains this day</span></div>}
         </Fragment>
       ))}
       <p className="m small feedinfo">Scheduled times from the Ministry of Transport timetable
@@ -145,8 +172,12 @@ function JourneyDetail(p: Props & { j: Journey }) {
   const [stops, setStops] = useState(false);
   const cur = combos[pick?.combo ?? 0] ?? [];
   const ref = useRef<HTMLDivElement>(null);
-  // bring the change choices and Go into view when a trip opens
-  useEffect(() => { ref.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }); }, []);
+  // bring the change choices and the start button into view when a trip is opened (not when the page reopens)
+  useEffect(() => {
+    if (openedDetail === j.key) return;
+    openedDetail = j.key;
+    ref.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [j.key]);
   return (
     <div className="jdetail" ref={ref}>
       {Array.from({ length: j.changes }, (_, slot) => {
@@ -167,7 +198,9 @@ function JourneyDetail(p: Props & { j: Journey }) {
       })}
       <div className="jd-btns">
         <button className="ghost" onClick={() => setStops((s) => !s)} aria-expanded={stops}>{stops ? "Hide stops" : "Show stops"}</button>
-        <button className="go" onClick={p.onGo}>Go</button>
+        <button className="go" onClick={p.onGo} aria-label="Start the trip" title="Start the trip">
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M8 5.5v13a1 1 0 0 0 1.5.86l10.4-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5Z" /></svg>
+        </button>
       </div>
       {stops && legs && <LegList legs={legs} name={name} />}
     </div>

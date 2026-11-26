@@ -21,7 +21,7 @@ describe("planner store", () => {
     expect(parsePlanner(null)).toEqual(DEFAULT_PLANNER);
     expect(parsePlanner("{oops")).toEqual(DEFAULT_PLANNER);
     expect(parsePlanner(JSON.stringify({ saved: [{ a: "BIN", b: 3 }], journeyT: 7, prefs: { "A>B": ["TAU"], x: [1] } })))
-      .toEqual({ saved: [], prefs: { "A>B": ["TAU"] }, journeyT: 0.9 });
+      .toEqual({ saved: [], prefs: { "A>B": ["TAU"] } });
   });
   it("saves a search once for both directions", () => {
     const s = toggleSaved(DEFAULT_PLANNER, { from: "BIN", to: "ASK" });

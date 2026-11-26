@@ -1,13 +1,14 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
-import type { Basemap, Lang, Network, Tracks } from "../data/types";
+import type { Basemap, Lang, Network, Place, Tracks } from "../data/types";
 import { NetworkMap, type MapJourney, type MapMe } from "./NetworkMap";
 
-export type MapHandle = { zoomBy(k: number): void; resetZoom(): void; fitJourney(): void };
+export type MapHandle = { zoomBy(k: number): void; resetZoom(): void; fitJourney(t?: number): void };
 
 type Props = {
   network: Network;
   basemap: Basemap;
   tracks: Tracks;
+  places: Place[];
   t: number;
   size: number;
   lang: Lang | "off";
@@ -29,7 +30,7 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(p, ref) {
   latest.current = p;
 
   useEffect(() => {
-    const m = new NetworkMap(host.current!, p.network, p.basemap, p.tracks, {
+    const m = new NetworkMap(host.current!, p.network, p.basemap, p.tracks, p.places, {
       onStation: (id) => cb.current.onStation(id),
       onBackground: () => cb.current.onBackground(),
     });
@@ -39,7 +40,7 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(p, ref) {
     m.setSize(q.size); m.setLang(q.lang); m.setSelection(q.selection); m.setJourney(q.journey); m.setMe(q.me); m.setT(q.t);
     map.current = m;
     return () => { m.destroy(); map.current = null; };
-  }, [p.network, p.basemap, p.tracks]);
+  }, [p.network, p.basemap, p.tracks, p.places]);
 
   useEffect(() => map.current?.setT(p.t), [p.t]);
   useEffect(() => map.current?.setSize(p.size), [p.size]);
@@ -51,7 +52,7 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(p, ref) {
   useImperativeHandle(ref, () => ({
     zoomBy: (k) => map.current?.zoomBy(k),
     resetZoom: () => map.current?.resetZoom(),
-    fitJourney: () => map.current?.fitJourney(),
+    fitJourney: (t?: number) => map.current?.fitJourney(t),
   }));
 
   return <div className="map-host" ref={host} />;

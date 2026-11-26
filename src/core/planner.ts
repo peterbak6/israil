@@ -1,4 +1,4 @@
-/** Trip-planner state kept in the browser: saved searches, preferred change stations, journey-mode slider.
+/** Trip-planner state kept in the browser: saved searches (favourites) and preferred change stations.
  * The user's location is never stored. */
 export type Od = { from: string | null; to: string | null };
 
@@ -7,11 +7,9 @@ export interface PlannerStore {
   saved: { a: string; b: string }[];
   /** preferred change stations per direction, key "FROM>TO" */
   prefs: Record<string, string[]>;
-  /** slider position used in journey mode (0 = schematic, 1 = geographic) */
-  journeyT: number;
 }
 
-export const DEFAULT_PLANNER: PlannerStore = { saved: [], prefs: {}, journeyT: 0.9 };
+export const DEFAULT_PLANNER: PlannerStore = { saved: [], prefs: {} };
 const KEY = "israil.planner.v1";
 const isId = (v: unknown): v is string => typeof v === "string" && /^[A-Z0-9]{2,8}$/.test(v);
 
@@ -22,8 +20,7 @@ export function parsePlanner(raw: string | null): PlannerStore {
   const prefs: Record<string, string[]> = {};
   if (v.prefs && typeof v.prefs === "object")
     for (const [k, p] of Object.entries(v.prefs)) if (Array.isArray(p) && p.every(isId)) prefs[k] = p;
-  const journeyT = typeof v.journeyT === "number" && v.journeyT >= 0 && v.journeyT <= 1 ? v.journeyT : DEFAULT_PLANNER.journeyT;
-  return { saved, prefs, journeyT };
+  return { saved, prefs };
 }
 
 export function loadPlanner(): PlannerStore {

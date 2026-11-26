@@ -38,3 +38,6 @@ const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 /** "Thu 26 Nov" */
 export const fmtDay = (ymd: Ymd) => `${DAYS[weekday(ymd)]} ${+ymd.slice(6, 8)} ${MONTHS[+ymd.slice(4, 6) - 1]}`;
+
+/** Whole days from date a to date b (b − a). */
+export const daysBetween = (a: Ymd, b: Ymd) => Math.round((toDate(b).getTime() - toDate(a).getTime()) / 86400000);

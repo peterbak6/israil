@@ -1,11 +1,13 @@
 import { select } from "d3-selection";
 import { zoom, zoomIdentity, type ZoomBehavior, type ZoomTransform } from "d3-zoom";
-import type { Basemap, Lang, Line, Network, Ring, Station, Tracks } from "../data/types";
-import { fitter, lerp, project, resample, type Pt } from "../core/geometry";
-import { blockAt, labelLines, placeGeographic, placementOrder, schematicLabelRefs, type LabelBlock, type LabelStyle } from "../core/labels";
+import type { Basemap, Lang, Line, Network, Place, Ring, Station, Tracks } from "../data/types";
+import { fitter, lerp, project, resample, type Box, type Pt } from "../core/geometry";
+import { blockAt, labelLines, placeCities, placeGeographic, placementOrder, schematicLabelRefs, type LabelBlock, type LabelStyle } from "../core/labels";
 import { TRAIN_COLORS, type Piece } from "../core/route";
 
 const NS = "http://www.w3.org/2000/svg";
+/** Most zoom: two doubling steps from the full view (1x, 2x, 4x). */
+export const ZOOM_MAX = 4;
 const el = <K extends keyof SVGElementTagNameMap>(tag: K, cls?: string, parent?: Element) => {
   const e = document.createElementNS(NS, tag);
   if (cls) e.setAttribute("class", cls);
@@ -28,7 +30,7 @@ export type MapJourney = {
 };
 /** The user's position snapped to the journey (piece index, share of that piece's length), with the text shown
  * under the marker. `far`: the real position is far from the route, so the marker is drawn hollow. */
-export type MapMe = { piece: number; frac: number; far: boolean; lines: string[]; big: string; sub: string };
+export type MapMe = { piece: number; frac: number; far: boolean; what: string; when: string };
 type RouteSpan = { line: string | null; i0: number; i1: number; a?: string; b?: string };
 
 /** What is highlighted. Selected stations always stay visible on top of this. */
@@ -89,16 +91,23 @@ export class NetworkMap {
   private geoCache: { key: string; blocks: Map<string, LabelBlock> } = { key: "", blocks: new Map() };
   /** label widths measured with the real SVG text (canvas measurement can differ slightly) */
   private textW = new Map<string, number>();
+  /** city/town points in fitted geographic coordinates (pre-zoom) */
+  private placeXY: Pt[] = [];
+  private cityKey = "";
+  /** centre of the drawn network at the current slider value (pre-zoom): panning keeps it on screen */
+  private center: Pt = [0, 0];
+  private lastBgTap = { t: 0, x: 0, y: 0 };
   private probe: SVGTextElement | null = null;
   private ro: ResizeObserver;
 
-  constructor(private host: HTMLElement, private net: Network, private base: Basemap, private tracks: Tracks, private cb: MapCallbacks) {
+  constructor(private host: HTMLElement, private net: Network, private base: Basemap, private tracks: Tracks,
+    private places: Place[], private cb: MapCallbacks) {
     this.st = new Map(net.stations.map((s) => [s.id, s]));
     this.refs = schematicLabelRefs(net);
     this.order = placementOrder(net);
     this.svg = el("svg", "map");
     host.appendChild(this.svg);
-    for (const name of ["land", "net", "labels"]) this.g[name] = el("g", name, this.svg);
+    for (const name of ["land", "cities", "net", "labels"]) this.g[name] = el("g", name, this.svg);
     for (const name of ["segs", "hits", "route", "links", "dots", "me"]) this.g[name] = el("g", name, this.g.net);
     for (const c of net.copies) if (!this.stationCopy.has(c.station)) this.stationCopy.set(c.station, c.id);
     // position marker: a triangle with a concave base, pointing up before rotation
@@ -112,15 +121,25 @@ export class NetworkMap {
     host.appendChild(this.meLbl);
     this.build();
 
+    // Zoom: two steps (1x, 2x, 4x). Panning keeps the centre of the network on screen (see constrain()).
     this.zoomer = zoom<SVGSVGElement, unknown>()
-      .scaleExtent([1, 16]) // never smaller than the full view
+      .scaleExtent([1, ZOOM_MAX])
       .clickDistance(5)
+      .constrain((tr) => this.constrain(tr))
       .on("zoom", (ev) => { this.view = ev.transform; this.render(); });
-    select(this.svg).call(this.zoomer);
+    select(this.svg).call(this.zoomer).on("dblclick.zoom", null); // double click/tap is used to clear, not to zoom
+    // A single tap on empty map space does nothing (it was too easy to clear a selection by accident);
+    // a double tap or double click there clears it.
     this.svg.addEventListener("click", (ev) => {
       const c = (ev.target as Element).classList;
       const onStation = c.contains("dot") || c.contains("hit") || !!(ev.target as Element).closest?.(".lbl");
-      if (!onStation) { this.hideTip(); this.cb.onBackground(); }
+      if (onStation) return;
+      this.hideTip();
+      const last = this.lastBgTap, now = performance.now();
+      if (now - last.t < 400 && Math.hypot(ev.clientX - last.x, ev.clientY - last.y) < 30) {
+        this.lastBgTap = { t: 0, x: 0, y: 0 };
+        this.cb.onBackground();
+      } else this.lastBgTap = { t: now, x: ev.clientX, y: ev.clientY };
     });
 
     this.ro = new ResizeObserver(() => this.layout());
@@ -131,7 +150,11 @@ export class NetworkMap {
   destroy() { this.ro.disconnect(); this.svg.remove(); this.tip.remove(); this.meLbl.remove(); }
 
   // ---------- public API ----------
-  setT(t: number) { this.t = t; this.render(); }
+  setT(t: number) {
+    this.t = t;
+    this.updateCenter();
+    select(this.svg).call(this.zoomer.transform, this.view); // re-apply the pan limit for the new centre (renders)
+  }
   setSize(fs: number) {
     if (fs !== this.fs) this.textW.clear();
     this.fs = fs;
@@ -150,27 +173,29 @@ export class NetworkMap {
   }
   setSelection(sel: string[]) {
     this.sel = sel;
+    this.hideTip(); // a tap's tooltip should not stay up once the station is picked (phones)
     this.applyFocus();
     this.render();
   }
   /** Show one journey or the connection options; null goes back to the normal map. */
   setJourney(j: MapJourney | null) {
     this.journey = j;
+    this.hideTip();
     this.buildRoute();
     this.applyFocus();
     this.render();
   }
   setMe(m: MapMe | null) { this.me = m; this.render(); }
-  /** Zoom so the whole journey fills the view (below the slider bar). */
-  fitJourney() {
+  /** Zoom so the whole journey fills the view (below the slider bar), as drawn at slider value `t`. */
+  fitJourney(t = this.t) {
     const j = this.journey, w = this.host.clientWidth, h = this.host.clientHeight;
     if (!j || !this.A.size || !w || !h) return;
     const S = SEGMENT_POINTS - 1, ps: Pt[] = [];
-    j.pieces.forEach((_, pi) => { for (const idx of [0, S / 2, S]) ps.push(this.routePoint(pi, idx)); });
+    j.pieces.forEach((_, pi) => { for (const idx of [0, S / 2, S]) ps.push(this.routePoint(pi, idx, t)); });
     const xs = ps.map((p) => p[0]), ys = ps.map((p) => p[1]);
     const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
     const TOP = 56, pad = 48;
-    const k = Math.max(1, Math.min(16, (w - 2 * pad) / (x1 - x0 || 1), (h - TOP - 2 * pad) / (y1 - y0 || 1)));
+    const k = Math.max(1, Math.min(ZOOM_MAX, (w - 2 * pad) / (x1 - x0 || 1), (h - TOP - 2 * pad) / (y1 - y0 || 1)));
     const x = w / 2 - k * (x0 + x1) / 2, y = TOP + (h - TOP) / 2 - k * (y0 + y1) / 2;
     select(this.svg).call(this.zoomer.transform, zoomIdentity.translate(x, y).scale(k));
   }
@@ -241,11 +266,7 @@ export class NetworkMap {
   private layout() {
     const w = this.host.clientWidth, h = this.host.clientHeight;
     if (!w || !h) return;
-    // Panning is free, but the map can't leave the screen completely: at least 30% of it stays in view
-    // (the viewport may move up to 70% of its size past each edge). Zooming out stops at the full view.
-    const KEEP = 0.3, mx = w * (1 - KEEP), my = h * (1 - KEEP);
-    this.zoomer.extent([[0, 0], [w, h]]).translateExtent([[-mx, -my], [w + mx, h + my]]);
-    select(this.svg).call(this.zoomer.transform, this.view); // re-clamp the current view to the new size
+    this.zoomer.extent([[0, 0], [w, h]]);
     this.textW.clear();
     const TOP = 56; // room for the slider bar drawn over the top of the map
     const fS = fitter(this.net.copies.map((c) => [c.sx, c.sy] as Pt), w, h, 28, TOP);
@@ -272,6 +293,10 @@ export class NetworkMap {
       }
       this.segGeom.set(l.id, segs);
     }
+    this.placeXY = this.places.map((p) => fG(project(p.lon, p.lat)));
+    this.cityKey = "";
+    this.updateCenter();
+    select(this.svg).call(this.zoomer.transform, this.view); // re-clamp the current view to the new size
     const path = (r: Ring) => "M" + r.map(([lo, la]) => fG(project(lo, la)).map((v) => v.toFixed(1)).join(",")).join("L");
     const b = this.base;
     this.g.land.innerHTML =
@@ -387,16 +412,62 @@ export class NetworkMap {
     }
     this.g.land.setAttribute("transform", `translate(${this.view.x},${this.view.y}) scale(${this.view.k})`);
     this.g.land.style.opacity = this.t >= 1 ? "1" : "0";
+    this.drawCities();
+  }
+
+  /** Centre of the network's bounding box as drawn at the current slider value (pre-zoom). */
+  private updateCenter() {
+    if (!this.A.size) return;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const c of this.net.copies) {
+      const p = lerp(this.A.get(c.id)!, this.B.get(c.id)!, this.t);
+      x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); y0 = Math.min(y0, p[1]); y1 = Math.max(y1, p[1]);
+    }
+    this.center = [(x0 + x1) / 2, (y0 + y1) / 2];
+  }
+
+  /** Pan limit: the centre of the network stays on screen (below the slider bar), at every zoom level. */
+  private constrain(tr: ZoomTransform): ZoomTransform {
+    const w = this.host.clientWidth, h = this.host.clientHeight, m = 24, TOP = 56;
+    if (!w || !h) return tr;
+    const [cx, cy] = this.center, k = tr.k;
+    const x = Math.min(w - m - k * cx, Math.max(m - k * cx, tr.x));
+    const y = Math.min(h - m - k * cy, Math.max(TOP + m - k * cy, tr.y));
+    return x === tr.x && y === tr.y ? tr : zoomIdentity.translate(x, y).scale(k);
+  }
+
+  /** City and town names on the geographic map: placed around station labels and dots, bigger places first. */
+  private drawCities() {
+    const show = this.t >= 1 && this.places.length > 0;
+    this.g.cities.style.display = show ? "" : "none";
+    if (!show) return;
+    const w = this.host.clientWidth, h = this.host.clientHeight;
+    const key = [this.view.k, this.view.x, this.view.y, this.fs, this.lang, this.labelsOn, w, h].join();
+    if (key === this.cityKey) return;
+    this.cityKey = key;
+    const r = this.r() + 2, avoid: Box[] = [];
+    for (const c of this.net.copies) { const p = this.V(this.B.get(c.id)!); avoid.push([p[0] - r, p[1] - r, p[0] + r, p[1] + r]); }
+    if (this.labelsOn) for (const b of this.geoLabels().values()) avoid.push(b.box);
+    const fs = Math.round(this.fs * 0.9);
+    const name = (p: Place) => (this.lang === "he" ? p.he ?? p.en : p.en ?? p.he) ?? "";
+    const cities = this.places.map((p, i) => {
+      const [x, y] = this.V(this.placeXY[i]);
+      return { x, y, text: name(p), city: p.city, pop: p.pop };
+    });
+    const out = placeCities(cities, avoid, w, h, fs, (s) => this.measure(s) * 0.9, 56);
+    this.g.cities.innerHTML = out.map((o) =>
+      `<circle class="city-dot" cx="${o.x.toFixed(1)}" cy="${o.y.toFixed(1)}" r="${this.places[o.i].city ? 2.6 : 1.8}"/>` +
+      `<text class="city${this.places[o.i].city ? " big" : ""}" x="${o.lx.toFixed(1)}" y="${o.ly.toFixed(1)}" style="font-size:${fs}px">${esc(cities[o.i].text)}</text>`).join("");
   }
 
   /** A point on the journey: piece `pi`, `idx` samples (0..SEGMENT_POINTS-1) along it in riding order. Pre-zoom. */
-  private routePoint(pi: number, idx: number): Pt {
+  private routePoint(pi: number, idx: number, t = this.t): Pt {
     const S = SEGMENT_POINTS - 1, p = this.journey!.pieces[pi];
-    const at = (k: string) => { const c = this.stationCopy.get(k)!; return lerp(this.A.get(c)!, this.B.get(c)!, this.t); };
+    const at = (k: string) => { const c = this.stationCopy.get(k)!; return lerp(this.A.get(c)!, this.B.get(c)!, t); };
     if (!p.line) return lerp(at(p.from), at(p.to), idx / S);
     const g = this.segGeom.get(p.line)![p.seg], k = p.rev ? S - idx : idx;
     const i0 = Math.max(0, Math.min(S - 1, Math.floor(k))), u = k - i0;
-    return lerp(lerp(g.sch[i0], g.geo[i0], this.t), lerp(g.sch[i0 + 1], g.geo[i0 + 1], this.t), u);
+    return lerp(lerp(g.sch[i0], g.geo[i0], t), lerp(g.sch[i0 + 1], g.geo[i0 + 1], t), u);
   }
 
   /** The position marker: on the route, pointing towards the next point of the route. */
@@ -420,7 +491,7 @@ export class NetworkMap {
     this.meLbl.style.left = lx + "px";
     this.meLbl.style.top = ly + "px";
     this.meLbl.style.transform = tr as string;
-    this.meLbl.innerHTML = m.lines.map((l) => `<div>${esc(l)}</div>`).join("") + `<b>${esc(m.big)}</b><div class="m">${esc(m.sub)}</div>`;
+    this.meLbl.innerHTML = `<div>${esc(m.what)}</div><b>${esc(m.when)}</b>`;
   }
 
   // ---------- highlighting ----------

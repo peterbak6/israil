@@ -23,6 +23,7 @@ Contents: [Sources and licences](#sources-and-licences) · [Data pipeline](#data
 | Closed stations (Jerusalem Biblical Zoo, Malha) | OpenStreetMap station nodes [2930682108](https://www.openstreetmap.org/node/2930682108) and [2930682106](https://www.openstreetmap.org/node/2930682106) | © OpenStreetMap contributors, [ODbL](https://www.openstreetmap.org/copyright) | Same as the track geometry below. |
 | Real track geometry (`tracks.json`) | OpenStreetMap, `railway=rail`, via the Overpass API | © OpenStreetMap contributors, [ODbL](https://opendatacommons.org/licenses/odbl/1-0/) | Credit shown on the map whenever tracks are visible. `tracks.json` is a derived database and is itself available under the ODbL (see below). |
 | Basemap (land, lakes, rivers, urban areas, roads) | Natural Earth 10m | Public domain | Nothing required; credited here. |
+| City and town names (`places.json`) | OpenStreetMap `place=city` / `place=town` nodes in Israel, via the Overpass API (`pipeline/osm_places.py`) | © OpenStreetMap contributors, ODbL | Shown only on the geographic map, where the OpenStreetMap credit is already shown. Derived database, available under the ODbL. |
 | JavaScript libraries (React, d3, Vite, Wrangler…) | npm | MIT / ISC / Apache-2.0 | Their licence notices are kept in the build. |
 
 Not used: the unofficial `rail.co.il` API. It depends on a key taken from the Israel Railways website, so the
@@ -61,6 +62,7 @@ pip install -r pipeline/requirements.txt     # shapely (basemap), opencv + numpy
 python pipeline/gtfs_rail.py                 # optional: refresh station coordinates from GTFS
 python pipeline/build_network.py
 python pipeline/osm_tracks.py                # needs network.json; downloads OSM once, then reuses it
+python pipeline/osm_places.py                # city and town names for the geographic map -> places.json
 python pipeline/gtfs_timetable.py            # train timetable for the trip planner -> timetable.json (+ out/timetable_report.txt)
 python pipeline/build_basemap.py             # needs Natural Earth GeoJSON in pipeline/sources/
 ```
@@ -236,9 +238,9 @@ All coordinates are WGS84 `[lon, lat]`. Schematic positions are pixels of the 11
 `localStorage["israil.settings.v1"] = { size: number (6–18), lang: "en" | "he" | "off", maxChanges: 0 | 1 | 2,
 minChange: integer 0–10 }`. Invalid or missing values fall back to `{ size: 10, lang: "en", maxChanges: 2, minChange: 0 }`.
 
-`localStorage["israil.planner.v1"] = { saved: {a, b}[], prefs: { "FROM>TO": station[] }, journeyT: number (0–1) }`:
-saved searches (each covers both directions), the change stations last chosen per direction, and the slider
-position used in journey mode (default 0.9). The user's location is never stored.
+`localStorage["israil.planner.v1"] = { saved: {a, b}[], prefs: { "FROM>TO": station[] } }`: favourites (starred
+searches, each covering both directions) and the change stations last chosen per direction. The user's location is
+never stored.
 
 ---
 
@@ -251,6 +253,7 @@ Each source changes at a different pace:
 | Train timetable (GTFS) | The Ministry republishes the feed often, including changes for the next few days | Nightly automatic update *(planned)*; today `python pipeline/gtfs_timetable.py --refresh` |
 | Station coordinates, stop order | When stations open or services are reorganized | Automatic check, a person approves *(planned)* |
 | Real track (OpenStreetMap) | Rarely: new lines, corrections | Monthly automatic update *(planned)*; today `python pipeline/osm_tracks.py --refresh` |
+| City and town names (OpenStreetMap) | Rarely | `python pipeline/osm_places.py` when wanted |
 | Schematic map (Israel Railways) | A few times a year, with timetable changes | Manual, following [docs/update-schematic-map.md](docs/update-schematic-map.md) (scripted circle detection, assignments by hand with a ready-made prompt) |
 | Natural Earth basemap | Practically never | Nothing to do |
 
@@ -341,30 +344,55 @@ A label has one position on each side and slides linearly between them, line by 
 - **Spacing:** the gap between a dot and its label is `r + 4 px`. Label widths are measured with the real SVG text
   (`getComputedTextLength`), not estimated.
 
-### Zoom and pan
+### Zoom and pan (limits)
+
+Two zoom steps (1×, 2×, 4×; the + and − buttons double and halve). Panning keeps the centre of the network (as
+drawn at the current slider value) on screen, at every zoom level. Double click/tap does not zoom; it clears the
+selection.
+
+### City names on the geographic map
+
+At 100% the map shows city and town names from OpenStreetMap (`places.json`), with a dot each, in the station-name
+language. They are placed greedily (`placeCities` in `src/core/labels.ts`), bigger places first (cities, then by
+population): to the right of the point, else to the left, and left out where they would cover a station label, a
+station dot or another name. Zooming in therefore shows more of them.
+
+### Zoom and pan (rendering)
 
 `d3-zoom` provides a transform `(k, x, y)` that is applied to positions only: `P' = k·P + (x, y)`. Dots, line
-widths and text keep their pixel size, so zooming in gives the map more room, as on a web map. The zoom range is
-1× to 16×, so you can't zoom out past the full view. Panning is limited to the viewport plus a margin wide enough
-to read the outermost labels (`translateExtent`). The basemap is one SVG group with that transform and
+widths and text keep their pixel size, so zooming in gives the map more room, as on a web map. The limits are
+described above (`scaleExtent` 1–4 and a custom `constrain`). The basemap is one SVG group with that transform and
 non-scaling strokes.
 
 ### Trip planner (`src/core/journeys.ts`, `src/core/route.ts`, `src/ui/Planner.tsx`)
 
-Four steps, all in the left panel (on phones, the top part of the screen, which keeps a fixed height so the map
-never resizes while planning):
+The header ("Israil · the map ⇄ the track") with the undo button (↺) and the settings gear is on every page. Dots at the bottom show the
+page; tap a dot (or, on a phone, swipe left/right on a page) to move between pages.
 
-1. **Search.** From and To fields with station suggestions (English or Hebrew), ⇅ to swap the direction, ☆ to
-   save the search. Tapping stations on the map fills the fields too. Saved searches appear as chips.
-2. **Pick a trip.** A list of today's and tomorrow's journeys, opened at a red "now" line: earlier trains above,
-   later ones below. Each row: departure – arrival, duration, number of changes, and the trains as
-   *number + destination* (`127 Modi'in Center › 667 Be'er Sheva Center`).
-3. **Pick the change stations.** Opening a row lists, for each change, every station where it works, with the
-   arrival, departure and change time; the first (or the one chosen last time for this direction) is ticked.
-   The map shows the chosen journey. "Show stops" lists every stop with its time.
-4. **Go.** Journey mode: everything except the journey fades out, the map zooms to it and the slider moves to the
-   saved journey position (90% by default). The location is requested at this point only. A marker sits on the
-   route, pointing along it, with the time to the next change and, in large type, the time to arrival.
+**Phone: three pages, one task each.**
+1. **Map.** The map, slider and zoom. It always shows the current state: the selected stations, the connection
+   options, the picked trip, and during a trip the moving marker. The first tapped station is From, the second
+   To, and then the trips page opens.
+2. **Favourites.** The starred searches; tapping one is the same as picking its two stations, ★ removes it.
+3. **Trips.** From and To (with suggestions in English or Hebrew, ⇅ to swap, ☆ to star), the day (shown as
+   "Sun 29 Nov") and time (default today and now; "Now" goes back to them), and the list for that day and the next,
+   opened at the chosen time (red line); earlier trains above, later ones below, trains already gone greyed out.
+   The list opens at the chosen time when the search changes (stations, day, time, settings), not as the clock
+   ticks, and keeps its scroll position when the page is reopened. Picking a trip shows its change stations; the
+   start button (▶) starts it and switches to the map, which glides to 100%. During the trip this page shows the
+   trip in progress instead: its trains and stops, the current train stressed, and End.
+
+**Desktop: two pages**, with the map always visible: **Plan** (the fields fill as stations are picked, the list
+appears once both are set, and the trip in progress replaces it after ▶) and **Favourites**.
+
+**Clearing.** A chip at the top of the map shows the current state (the stations, the picked trip's time, or "Trip
+in progress"). The undo button (↺) in the header, the chip's ✕, a double tap or double click on empty map space, or Esc undoes
+the latest step: ends the trip,
+else unpicks the trip, else clears the stations. A single tap on empty space does nothing.
+
+**The marker** (during a trip) shows only the next action, under or above it depending on the direction of travel:
+"Change at Tel Aviv University–Expo, in 12 min", or at the end "Arrive at Ashkelon, in 25 min". Once a scheduled
+time has passed it shows "at 13:22" instead of a countdown.
 
 Only scheduled times from the timetable are shown, never estimates or delays. Below the list the app says when the
 Ministry published the timetable in use (`feed.published`), since a later change (e.g. works cancelled) is not in it. There is no platform information
