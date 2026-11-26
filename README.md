@@ -369,7 +369,7 @@ non-scaling strokes.
 The header ("Israil · the map ⇄ the track") with the undo button (↺) and the settings gear is on every page. Dots at the bottom show the
 page; tap a dot (or, on a phone, swipe left/right on a page) to move between pages.
 
-**Phone: three pages, one task each.**
+**Phone: three pages, one task each** (dots, left to right: Favourites, Map, Trips; the map opens first).
 1. **Map.** The map, slider and zoom. It always shows the current state: the selected stations, the connection
    options, the picked trip, and during a trip the moving marker. The first tapped station is From, the second
    To, and then the trips page opens.
@@ -382,7 +382,7 @@ page; tap a dot (or, on a phone, swipe left/right on a page) to move between pag
    start button (▶) starts it and switches to the map, which glides to 100%. During the trip this page shows the
    trip in progress instead: its trains and stops, the current train stressed, and End.
 
-**Desktop: two pages**, with the map always visible: **Plan** (the fields fill as stations are picked, the list
+**Desktop: two pages** (dots: Favourites, Plan; Plan opens first), with the map always visible: **Plan** (the fields fill as stations are picked, the list
 appears once both are set, and the trip in progress replaces it after ▶) and **Favourites**.
 
 **Clearing.** A chip at the top of the map shows the current state (the stations, the picked trip's time, or "Trip

@@ -212,8 +212,9 @@ export default function App() {
   const odProps = { od, onOd: chooseOd, stations: served, name, store, onToggleSaved: () => setStore((s) => toggleSaved(s, od)) };
   const page: Screen = desktop ? (screen === 2 ? 2 : 3) : screen;
   const stages: Stage[] = desktop
-    ? [{ s: 3, label: "Plan", enabled: true }, { s: 2, label: "Favourites", enabled: true }]
-    : [{ s: 1, label: "Map", enabled: true }, { s: 2, label: "Favourites", enabled: true },
+    // order of the dots: favourites on the left, so the map and the trips (plan) sit next to each other
+    ? [{ s: 2, label: "Favourites", enabled: true }, { s: 3, label: "Plan", enabled: true }]
+    : [{ s: 2, label: "Favourites", enabled: true }, { s: 1, label: "Map", enabled: true },
       { s: 3, label: mode === "go" ? "Trip in progress" : "Trips", enabled: true }];
   // phone: swipe left/right on a page (not on the map, where dragging pans) to go to the next/previous page
   const onSwipeEnd = (x: number, y: number) => {
