@@ -3,7 +3,7 @@ import type { Basemap, Network, Place, Tracks } from "./data/types";
 import { loadData } from "./data/load";
 import { loadTimetable, type Timetable } from "./data/timetable";
 import { changeCombos, comboWith, legsVia, planDays, preferredCombo } from "./core/journeys";
-import { NetGraph, optionsOf, pieceShape, routeOf, snapToRoute } from "./core/route";
+import { NetGraph, optionsOf, pieceShape, pointAlong, routeOf, snapToRoute } from "./core/route";
 import { loadPlanner, nextOd, savePlanner, toggleSaved, type Od } from "./core/planner";
 import { daysBetween, fmtDur, fmtTime, israelNow } from "./core/time";
 import { easeInOut } from "./core/geometry";
@@ -15,6 +15,11 @@ import { Favorites } from "./ui/Favorites";
 import { StageDots, type Screen, type Stage } from "./ui/StageDots";
 import { JourneyPanel } from "./ui/JourneyPanel";
 import { loadSettings, saveSettings, type Settings } from "./core/settings";
+
+/** Demo: `?simulate=20` in the address makes a started trip move a fake position from start to destination in 20 s
+ * (after the slider's glide), with the clock running from departure to arrival. For screen recordings only;
+ * without it the app uses the real location. */
+const SIMULATE = (() => { const v = new URLSearchParams(location.search).get("simulate"); return v === null ? 0 : Math.max(5, +v || 20); })();
 
 /** Metres from the route beyond which the marker is drawn hollow. */
 const FAR = 1000;
@@ -44,6 +49,8 @@ export default function App() {
   const listDate = goDate ?? whenSel.date ?? now.date;
   const when = { date: listDate, min: whenSel.min ?? now.min, isNow: whenSel.date === null && whenSel.min === null };
   const anim = useRef(0);
+  const sim = useRef(0);
+  const [simMin, setSimMin] = useState<number | null>(null);
   const swipe = useRef<{ x: number; y: number } | null>(null);
   const asideRef = useRef<HTMLElement>(null);
   // A sideways swipe on a page must not reach the browser, which would treat it as "back" and leave the app.
@@ -143,6 +150,21 @@ export default function App() {
     glide(t, 1); // on route: slowly to the geographic view
     lastPiece.current = 0;
     setPos(null);
+    if (SIMULATE && shapes) {
+      // demo: move along the route once the glide to 100% has finished
+      const dep = legs[0].run.dep[legs[0].i], last = legs[legs.length - 1], arr = last.run.arr[last.j];
+      const t0 = performance.now() + 2700, ms = SIMULATE * 1000;
+      setSimMin(dep);
+      const step = (nowT: number) => {
+        const u = Math.max(0, Math.min(1, (nowT - t0) / ms));
+        const [lon, lat] = pointAlong(shapes, u);
+        setPos({ lon, lat });
+        setSimMin(dep + u * (arr - dep));
+        if (u < 1) sim.current = requestAnimationFrame(step);
+      };
+      sim.current = requestAnimationFrame(step);
+      return;
+    }
     // the location is asked for only now, used on this device only and never stored
     if (!navigator.geolocation) return;
     watch.current = navigator.geolocation.watchPosition(
@@ -152,7 +174,7 @@ export default function App() {
     );
   };
   const end = () => {
-    cancelAnimationFrame(anim.current);
+    cancelAnimationFrame(anim.current); cancelAnimationFrame(sim.current); setSimMin(null);
     stopWatch(); setPos(null); setMode("plan"); setGoDate(null); setT(planT.current);
   };
   useEffect(() => stopWatch, []);
@@ -173,7 +195,7 @@ export default function App() {
   const live = useMemo(() => {
     if (mode !== "go" || !legs || !route || !pick) return null;
     // the journey's times count from midnight of its own day
-    const nowRel = now.min - 1440 * daysBetween(now.date, pick.ymd);
+    const nowRel = simMin ?? now.min - 1440 * daysBetween(now.date, pick.ymd); // (simMin: demo clock)
     const timeLeg = Math.max(0, legs.findIndex((g) => g.run.arr[g.j] > nowRel));
     const leg = snap ? route.pieces[snap.piece].leg : timeLeg;
     // a countdown while it is ahead; once the scheduled time has passed, just the time
@@ -183,7 +205,7 @@ export default function App() {
     return leg < legs.length - 1
       ? { leg, what: `Change at ${name(g.run.st[g.j])}`, when: when(g.run.arr[g.j]) }
       : { leg, what: `Arrive at ${name(last.run.st[last.j])}`, when: when(last.run.arr[last.j]) };
-  }, [mode, legs, route, pick, now, snap, name]);
+  }, [mode, legs, route, pick, now, snap, name, simMin]);
 
   const me = useMemo<MapMe | null>(() => (snap && live
     ? { piece: snap.piece, frac: snap.frac, far: snap.dist > FAR, what: live.what, when: live.when } : null), [snap, live]);

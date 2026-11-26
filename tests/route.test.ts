@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import type { Network, Tracks } from "../src/data/types";
 import type { Timetable } from "../src/data/timetable";
 import { changeCombos, legsVia, searchDay } from "../src/core/journeys";
-import { NetGraph, optionsOf, pieceShape, routeOf, snapToRoute } from "../src/core/route";
+import { NetGraph, optionsOf, pieceShape, pointAlong, routeOf, snapToRoute } from "../src/core/route";
 
 const read = (f: string) => JSON.parse(readFileSync(new URL("../public/data/" + f, import.meta.url), "utf8"));
 const net: Network = read("network.json"), tracks: Tracks = read("tracks.json"), tt: Timetable = read("timetable.json");
@@ -64,5 +64,19 @@ describe("optionsOf", () => {
   });
   it("lists the change stations of all options", () => {
     for (const legs of all) for (const l of legs.slice(1)) expect(o.changes).toContain(l.run.st[l.i]);
+  });
+});
+
+describe("pointAlong (demo simulation)", () => {
+  const shapes: [number, number][][] = [[[34.8, 32.0], [34.8, 32.1]], [[34.8, 32.1], [34.8, 32.3]]];
+  it("starts at the origin, ends at the destination, and moves by length", () => {
+    expect(pointAlong(shapes, 0)).toEqual([34.8, 32.0]);
+    expect(pointAlong(shapes, 1)[1]).toBeCloseTo(32.3, 6);
+    expect(pointAlong(shapes, 0.5)[1]).toBeCloseTo(32.15, 6);
+  });
+  it("snaps back onto the route at increasing pieces", () => {
+    const s1 = snapToRoute(shapes, ...pointAlong(shapes, 0.2))!, s2 = snapToRoute(shapes, ...pointAlong(shapes, 0.8))!;
+    expect(s1.piece).toBe(0);
+    expect(s2.piece).toBe(1);
   });
 });

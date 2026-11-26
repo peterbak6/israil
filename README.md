@@ -390,9 +390,15 @@ in progress"). The undo button (↺) in the header, the chip's ✕, a double tap
 the latest step: ends the trip,
 else unpicks the trip, else clears the stations. A single tap on empty space does nothing.
 
-**The marker** (during a trip) shows only the next action, under or above it depending on the direction of travel:
+**The marker** (during a trip) shows only the next action, in a label always centred above it (15 px clear):
 "Change at Tel Aviv University–Expo, in 12 min", or at the end "Arrive at Ashkelon, in 25 min". Once a scheduled
-time has passed it shows "at 13:22" instead of a countdown.
+time has passed it shows "at 13:22" instead of a countdown. The marker has the colour of the train the user is on (the same colour as that train's
+line on the map), and its label is kept inside the map.
+
+**Demo for screen recordings.** Add `?simulate=20` to the address (e.g. `http://localhost:5173/?simulate=20`): a
+started trip then moves a simulated position from start to destination in 20 seconds (after the slider has
+reached 100%), and the clock runs from departure to arrival, so the countdowns tick down. Without the parameter the
+app uses the real location as usual. `pointAlong` in `src/core/route.ts` gives the position along the route.
 
 Only scheduled times from the timetable are shown, never estimates or delays. Below the list the app says when the
 Ministry published the timetable in use (`feed.published`), since a later change (e.g. works cancelled) is not in it. There is no platform information

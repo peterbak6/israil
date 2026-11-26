@@ -482,16 +482,23 @@ export class NetworkMap {
     const deg = (Math.atan2(dy, dx) * 180) / Math.PI + 90;
     this.meEl.style.display = "";
     this.meEl.classList.toggle("far", m.far);
+    // the marker has the colour of the train the user is on (the same colour as that train's line on the map)
+    const col = TRAIN_COLORS[j.pieces[m.piece].leg % TRAIN_COLORS.length];
+    this.meEl.style.fill = m.far ? "#fff" : col;
+    this.meEl.style.stroke = m.far ? col : "#fff";
     this.meEl.setAttribute("transform", `translate(${p[0].toFixed(1)},${p[1].toFixed(1)}) rotate(${deg.toFixed(1)})`);
     // the label sits behind the arrow (on the stretch already travelled), so it never hides the route ahead
-    const G = 16, [lx, ly, tr] = Math.abs(dy) >= Math.abs(dx)
-      ? dy > 0 ? [p[0], p[1] - G, "translate(-50%,-100%)"] : [p[0], p[1] + G, "translate(-50%,0)"]
-      : dx > 0 ? [p[0] - G, p[1], "translate(-100%,-50%)"] : [p[0] + G, p[1], "translate(0,-50%)"];
     this.meLbl.style.display = "block";
-    this.meLbl.style.left = lx + "px";
-    this.meLbl.style.top = ly + "px";
-    this.meLbl.style.transform = tr as string;
+    this.meLbl.style.transform = "none";
     this.meLbl.innerHTML = `<div>${esc(m.what)}</div><b>${esc(m.when)}</b>`;
+    // always above the arrow, centred on it, 15 px clear of the arrow's tip (the arrow reaches 12 px from its
+    // centre whichever way it points); moved sideways only as far as needed to stay inside the map
+    const ARROW = 12, GAP = 15, lw = this.meLbl.offsetWidth, lh = this.meLbl.offsetHeight;
+    const W = this.host.clientWidth, pad = 6, TOP = 56;
+    const x = Math.max(pad, Math.min(W - pad - lw, p[0] - lw / 2));
+    const y = Math.max(TOP, p[1] - ARROW - GAP - lh);
+    this.meLbl.style.left = x + "px";
+    this.meLbl.style.top = y + "px";
   }
 
   // ---------- highlighting ----------

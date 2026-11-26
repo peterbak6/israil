@@ -169,3 +169,22 @@ export function snapToRoute(shapes: LonLat[][], lon: number, lat: number, from =
   });
   return best;
 }
+
+/**
+ * The point at share `u` (0..1) of the route's whole length, in lon/lat. Used by the demo simulation
+ * (`?simulate=` in the address), which moves a fake position from start to destination.
+ */
+export function pointAlong(shapes: LonLat[][], u: number): LonLat {
+  const kx = Math.cos((31.5 * Math.PI) / 180);
+  const pts = shapes.flatMap((s, i) => (i ? s.slice(1) : s));
+  const seg = pts.slice(1).map((q, i) => Math.hypot((q[0] - pts[i][0]) * kx, q[1] - pts[i][1]));
+  let left = Math.max(0, Math.min(1, u)) * seg.reduce((a, b) => a + b, 0);
+  for (let i = 0; i < seg.length; i++) {
+    if (left <= seg[i] || i === seg.length - 1) {
+      const f = seg[i] ? Math.min(1, left / seg[i]) : 0;
+      return [pts[i][0] + (pts[i + 1][0] - pts[i][0]) * f, pts[i][1] + (pts[i + 1][1] - pts[i][1]) * f];
+    }
+    left -= seg[i];
+  }
+  return pts[0];
+}
