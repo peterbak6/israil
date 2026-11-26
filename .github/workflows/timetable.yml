@@ -1,0 +1,61 @@
+name: Timetable
+# Downloads the latest Ministry of Transport GTFS feed every night and commits public/data/timetable.json
+# when the Ministry has published a new feed. The push to main makes Cloudflare deploy it.
+# Start it by hand: GitHub → Actions → Timetable → Run workflow.
+on:
+  schedule:
+    - cron: "17 1 * * *"   # 01:17 UTC = 03:17 Israel time in winter, 04:17 in summer
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: timetable
+  cancel-in-progress: false
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Feed date before
+        id: before
+        run: echo "published=$(python3 -c "import json;print(json.load(open('public/data/timetable.json'))['feed']['published'])")" >> "$GITHUB_OUTPUT"
+      - name: Download feed and export timetable
+        run: python3 pipeline/gtfs_timetable.py --refresh
+      - name: Feed date after
+        id: after
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          f = json.load(open("public/data/timetable.json"))["feed"]
+          print(f"published={f['published']}")
+          print(f"range={f['start']}-{f['end']}")
+          PY
+      - name: Report
+        run: |
+          echo "Feed published before: ${{ steps.before.outputs.published }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Feed published now:    ${{ steps.after.outputs.published }} (covers ${{ steps.after.outputs.range }})" >> "$GITHUB_STEP_SUMMARY"
+      # Only a new feed is committed; the export also stamps "generated", which alone is not worth a deploy.
+      - uses: actions/setup-node@v4
+        if: steps.before.outputs.published != steps.after.outputs.published
+        with:
+          node-version: 22
+          cache: npm
+      - name: Check the app with the new timetable
+        if: steps.before.outputs.published != steps.after.outputs.published
+        run: |
+          npm ci
+          npm run typecheck
+          npm test
+          npm run build
+      - name: Commit
+        if: steps.before.outputs.published != steps.after.outputs.published
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/data/timetable.json
+          git commit -m "timetable: feed published ${{ steps.after.outputs.published }}"
+          git push
