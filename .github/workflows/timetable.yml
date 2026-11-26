@@ -16,8 +16,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - name: Feed date before
@@ -39,7 +39,7 @@ jobs:
           echo "Feed published before: ${{ steps.before.outputs.published }}" >> "$GITHUB_STEP_SUMMARY"
           echo "Feed published now:    ${{ steps.after.outputs.published }} (covers ${{ steps.after.outputs.range }})" >> "$GITHUB_STEP_SUMMARY"
       # Only a new feed is committed; the export also stamps "generated", which alone is not worth a deploy.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         if: steps.before.outputs.published != steps.after.outputs.published
         with:
           node-version: 22
