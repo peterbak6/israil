@@ -251,7 +251,7 @@ export default function App() {
   return (
     <div className={"app" + (mode === "go" ? " go" : "")} data-page={page}>
       <header>
-        <div className="brand"><b>Israil</b><span>the map ⇄ the track</span></div>
+        <div className="brand"><img className="logo" src="/favicon.svg" alt="" width="28" height="28" /><b>Israil</b><span>the map ⇄ the track</span></div>
         <div className="hdr-btns">
           {/* undo the latest step: end the trip, else unpick the trip, else clear the stations */}
           <button className="undo" onClick={clear} disabled={!chip}

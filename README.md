@@ -1,499 +1,383 @@
-# Israil · Geo-Schematic Map
+# Israil · the map ⇄ the track
 
-An interactive comparison of the Israel Railways schematic network map and the real geography of the network.
-Every station is drawn as one dot per line, exactly where it sits on the official map, and every line runs between
-its stations as on the map. One slider morphs the whole picture, from the fully schematic map to stations at their
-real positions with lines following the real track. Click two stations to see the lines and transfers that
-connect them.
+Israel Railways publishes a schematic network map: tidy, readable, and far from where the tracks really run. Israil
+puts that map and the real geography on one screen and lets a slider morph between them. The schematic is the
+place to choose stations and plan a trip from the official timetable; the geography is the place to follow the trip,
+with a marker on the real track.
 
 © 2026 Peter Bak · [VisualAnalytics](https://visualanalytics.co.il)
 
-Contents: [Sources and licences](#sources-and-licences) · [Data pipeline](#data-pipeline) · [Data files](#data-files) ·
-[Keeping the data up to date](#keeping-the-data-up-to-date) · [Interpolation](#interpolation) · [App](#app) ·
-[Develop](#develop) · [Deploy](#deploy)
+1. [Data sources](#1-data-sources)
+2. [Data pipeline](#2-data-pipeline)
+3. [Visualization](#3-visualization)
+4. [Interaction](#4-interaction)
+5. [Developer](#5-developer)
 
 ---
 
-## Sources and licences
+## 1. Data sources
 
-| What | Source | Licence / terms | What we do about it |
-|---|---|---|---|
-| Schematic layout (station dots, line order, label sides) | Israel Railways "lines & stations" map, valid from 14 Nov 2026 | © Israel Railways. No licence is published. | The image is not committed; only the digitized circle centres are (`pipeline/sources/circles.json`). The layout in `network.json` is derived from their design, so **permission from Israel Railways is needed before the site is made public.** |
-| Station coordinates and timetable | Ministry of Transport GTFS feed `israel-public-transportation.zip` ([gov.il page](https://www.gov.il/he/pages/gtfs_general_transit_feed_specifications)) | Terms of use on that page: using or downloading the feed means accepting them; the Ministry may change them at any time without notice; no liability for errors, omissions or outdated data. No named open licence and no attribution requirement. | Credit "Ministry of Transport GTFS" anyway. Show only scheduled times, never estimates. Use only the production feed (the page says `Gtfs_10_days.zip` is for development and testing only). Re-read the terms when updating the pipeline. |
-| Closed stations (Jerusalem Biblical Zoo, Malha) | OpenStreetMap station nodes [2930682108](https://www.openstreetmap.org/node/2930682108) and [2930682106](https://www.openstreetmap.org/node/2930682106) | © OpenStreetMap contributors, [ODbL](https://www.openstreetmap.org/copyright) | Same as the track geometry below. |
-| Real track geometry (`tracks.json`) | OpenStreetMap, `railway=rail`, via the Overpass API | © OpenStreetMap contributors, [ODbL](https://opendatacommons.org/licenses/odbl/1-0/) | Credit shown on the map whenever tracks are visible. `tracks.json` is a derived database and is itself available under the ODbL (see below). |
-| Basemap (land, lakes, rivers, urban areas, roads) | Natural Earth 10m | Public domain | Nothing required; credited here. |
-| City and town names (`places.json`) | OpenStreetMap `place=city` / `place=town` nodes in Israel, via the Overpass API (`pipeline/osm_places.py`) | © OpenStreetMap contributors, ODbL | Shown only on the geographic map, where the OpenStreetMap credit is already shown. Derived database, available under the ODbL. |
-| JavaScript libraries (React, d3, Vite, Wrangler…) | npm | MIT / ISC / Apache-2.0 | Their licence notices are kept in the build. |
+The app uses no live data and calls no source at runtime: everything below is turned into static files by the
+pipeline (section 2).
 
-Not used: the unofficial `rail.co.il` API. It depends on a key taken from the Israel Railways website, so the
-public site does not call it.
+### 1.1 Schematic map
 
-**Data licences in this repository.** `public/data/tracks.json` and the two closed-station coordinates are
-derived from OpenStreetMap and are made available under the Open Database License 1.0
-(© OpenStreetMap contributors). `public/data/timetable.json` and the GTFS-derived station coordinates are subject
-to the Ministry of Transport terms above. `public/data/basemap.json` is public domain (Natural Earth). The
-schematic layout in `public/data/network.json` and `pipeline/sources/circles.json` is derived from the Israel
-Railways map and remains subject to their copyright. Everything else (code and documentation) is covered by
-[LICENSE](LICENSE).
+- **What:** the Israel Railways "lines & stations" map, valid from 14 Nov 2026 (image from rail.co.il).
+- **Used for:** station positions on the schematic, which stations each line serves and in what order, label sides.
+- **Licence:** © Israel Railways. The image is not in the repository, only the digitized layout. Permission from
+  Israel Railways is needed before the site is made public.
 
-The OpenStreetMap credit is the one source credit that stays in the UI. The licence requires it wherever the data
-is shown, so it appears at the bottom left of the map once the slider leaves 0%.
+### 1.2 Timetable and station locations
+
+- **What:** the Ministry of Transport GTFS feed, `https://gtfs.mot.gov.il/gtfsfiles/israel-public-transportation.zip`
+  (all public transport in Israel, a few weeks ahead; about 150 MB). Described on
+  [gov.il](https://www.gov.il/he/pages/gtfs_general_transit_feed_specifications).
+- **Used for:** every train trip with its stops and scheduled times, the service calendar, station coordinates.
+- **Licence:** gov.il terms of use (no named licence, no attribution required; the Ministry may change the terms and
+  accepts no liability). Only the production feed is used; the page marks `Gtfs_10_days.zip` as test data.
+
+### 1.3 Real track
+
+- **What:** OpenStreetMap ways `railway=rail` without a `service` tag (main and branch lines), from the
+  [Overpass API](https://overpass-api.de).
+- **Used for:** the shape of the line between every two consecutive stations on the geographic map.
+- **Licence:** ODbL (© OpenStreetMap contributors, credited on the map whenever it is shown).
+
+### 1.4 Cities and towns
+
+- **What:** OpenStreetMap nodes `place=city` and `place=town` inside Israel, from the Overpass API.
+- **Used for:** place names on the geographic map.
+- **Licence:** ODbL.
+
+### 1.5 Closed stations
+
+- **What:** OpenStreetMap station nodes [2930682108](https://www.openstreetmap.org/node/2930682108) (Jerusalem
+  Biblical Zoo) and [2930682106](https://www.openstreetmap.org/node/2930682106) (Jerusalem Malha), which are on the
+  map but not in the timetable.
+- **Licence:** ODbL.
+
+### 1.6 Basemap
+
+- **What:** [Natural Earth](https://www.naturalearthdata.com) 10m land, lakes, urban areas, rivers and roads.
+- **Licence:** public domain.
+
+### 1.7 Not used
+
+The unofficial rail.co.il API: it needs a key taken from the Israel Railways website.
+
+### 1.8 Licences in this repository
+
+Code and documentation: [LICENSE](LICENSE) (all rights reserved). `tracks.json`, `places.json` and the two
+closed-station coordinates are derived from OpenStreetMap and are available under the ODbL. `timetable.json` and
+the GTFS station coordinates follow the Ministry's terms. `basemap.json` is public domain. The schematic layout in
+`network.json` and `pipeline/sources/circles.json` remains © Israel Railways.
 
 ---
 
-## Data pipeline
+## 2. Data pipeline
 
-All scripts are in `pipeline/` and write to `public/data/`, which the app serves as static files. The app never
-calls any of these sources at runtime.
+All scripts are in `pipeline/` (Python, standard library unless noted) and write to `public/data/`, which the app
+loads as static files.
 
 ```
-Israel Railways map image ─► detect_circles.py ─► sources/circles.json ─┐
-                                                                        ├─► build_network.py ─► network.json
-MOT GTFS feed ──────────────► gtfs_rail.py ─────► sources/gtfs_stations.json ┘   (stations, lines, dots)
-                                                  out/check_report.txt
-OpenStreetMap (Overpass) ───► osm_tracks.py ────► tracks.json   (+ out/tracks_report.txt)
-MOT GTFS feed ──────────────► gtfs_timetable.py ► timetable.json (+ out/timetable_report.txt)
-Natural Earth 10m ──────────► build_basemap.py ─► basemap.json
+Israel Railways map image ─► detect_circles.py ─► circles.json ──┐
+                              (+ assignment by hand)             ├─► build_network.py ─► network.json
+GTFS feed ──────────────────► gtfs_rail.py ─────► gtfs_stations ─┘
+GTFS feed ──────────────────► gtfs_timetable.py ────────────────────────────────────► timetable.json
+OpenStreetMap rail ─────────► osm_tracks.py (needs network.json) ───────────────────► tracks.json
+OpenStreetMap places ───────► osm_places.py ────────────────────────────────────────► places.json
+Natural Earth ──────────────► build_basemap.py ─────────────────────────────────────► basemap.json
 ```
 
 ```bash
-pip install -r pipeline/requirements.txt     # shapely (basemap), opencv + numpy (digitizing only)
-python pipeline/gtfs_rail.py                 # optional: refresh station coordinates from GTFS
+pip install -r pipeline/requirements.txt   # shapely (basemap); opencv + numpy (digitizing only)
+python pipeline/gtfs_rail.py               # station coordinates + check report
 python pipeline/build_network.py
-python pipeline/osm_tracks.py                # needs network.json; downloads OSM once, then reuses it
-python pipeline/osm_places.py                # city and town names for the geographic map -> places.json
-python pipeline/gtfs_timetable.py            # train timetable for the trip planner -> timetable.json (+ out/timetable_report.txt)
-python pipeline/build_basemap.py             # needs Natural Earth GeoJSON in pipeline/sources/
+python pipeline/osm_tracks.py              # --refresh downloads OSM again
+python pipeline/osm_places.py
+python pipeline/gtfs_timetable.py          # --refresh downloads the latest feed
+python pipeline/build_basemap.py           # needs the Natural Earth GeoJSON files in pipeline/sources/
 ```
 
-### 1. Digitizing the schematic map (`detect_circles.py`, `sample_colors.py`)
+All coordinates are WGS84 `[lon, lat]`; schematic positions are pixels of the 1115 × 1600 map image, y down.
 
-The station circles on the Israel Railways map are white with a dark outline. `detect_circles.py`:
+### 2.1 Schematic network → `network.json`
 
-1. converts the image to HSV and keeps near-white pixels (saturation < 40, value > 225);
-2. erodes that mask with a 5×5 kernel. This cuts the thin white interchange bars that join circles, while the
-   larger circle interiors survive;
-3. takes connected components of 2–9 px as circle candidates;
-4. keeps a candidate only if a dark ring surrounds it (at least 14 of 24 rays hit a dark pixel just outside it).
+**Digitizing (scripted).** `detect_circles.py` finds the station circles on the map image: near-white pixels
+(HSV saturation < 40, value > 225), eroded with a 5×5 kernel to cut the white bars between interchange circles,
+connected components of 2–9 px, kept only if a dark ring surrounds them (14 of 24 rays). It found 165 circles.
+`sample_colors.py` samples the line colours around each circle.
 
-This found 165 circles. Four were added by hand: three filled grey circles (closed stations) and one circle that a
-crossing line hid. `sample_colors.py` samples the line colours around each circle to help with assignment, but the
-final assignment of circle → line → station is made by hand in `build_network.py`. Every circle is used exactly
-once (the build checks this).
+**Assignment (by hand).** Which circle belongs to which station and line, in what order each line runs, which
+detections to ignore, four circles added by hand (three closed stations, one hidden by a crossing line), and each
+label's side were written into `build_network.py` while reading the map. The build checks that every circle is used
+exactly once. When the map changes, follow [docs/update-schematic-map.md](docs/update-schematic-map.md), which
+includes a ready-made prompt for Claude.
 
-### 2. Network (`build_network.py`)
+**Coordinates.** From the GTFS feed (`gtfs_rail.py` writes `sources/gtfs_stations.json`), matched by `stop_id`;
+the two closed stations from OpenStreetMap.
 
-- **Stations:** English and Hebrew names (Hebrew as printed on the map), GTFS `stop_id`, and coordinates.
-  Coordinates come from the GTFS values, overridden by `sources/gtfs_stations.json` when `gtfs_rail.py` has been run.
-- **Lines:** the 16 lines drawn on the map (colours sampled from the map), each an ordered list of
-  `(station, circle)` pairs in drawing order. Night lines and the out-of-service Beit Shemesh – Malha line are flagged.
-- **Dots ("copies"):** one per station per line, at the circle's pixel centre. A station on five lines has five dots.
-- **Jitter snap:** dots of one station that lie in a row (less than 4 px apart vertically) get their median y, so
-  interchange rows are exactly level.
-- **Label placement on the schematic:** each station's label side (`l`, `r`, `t`, `b`, `bl`, `lr`) was read off the
-  map. See [Labels](#labels).
+**Content:** 71 stations, 16 lines, 165 dots.
 
-### 3. GTFS check (`gtfs_rail.py`)
+```ts
+stations: { id: "TAU", name, name_he, gtfs_stop_id,
+            lon, lat,        // real position (WGS84, from GTFS): the geographic end, one per station
+            label: "l" | "lr" | "r" | "t" | "b" | "bl" }[]   // label side on the schematic
+lines:    { id: "orchid", name: "Atlit – Beit She'an", color: "#…", night: boolean, inactive: boolean,
+            stops: string[] /* station ids in drawing order */ }[]
+copies:   { id: "TAU.orchid", station, line, circle,
+            sx, sy }[]       // pixel centre of the circle on the map image (no lon/lat): the schematic end,
+                             // one per station per line
+```
 
-Downloads (or reads) the MOT GTFS zip and keeps only `route_type = 2` (rail): the trips of those routes, their
-`stop_times` (streamed, since the file is large), and the stops they use. It writes:
+So the two ends of the interpolation live on different records: a station has one geographic position, and each
+of its dots has its own schematic position.
 
-- `sources/gtfs_stations.json`: every station served by a train: stop_id, name, lat, lon;
-- `out/gtfs_patterns.json`: every distinct stop sequence run by trains, with trip counts;
-- `out/check_report.txt`: stations whose coordinates moved more than 30 m, stations new to the feed, and map lines
-  whose stop order does not appear, in order, in any GTFS stop pattern (either direction).
+A station on five lines has five dots. Dots of one station in a row (less than 4 px apart vertically) are levelled
+to their median y.
 
-### 4. Real track (`osm_tracks.py`)
+### 2.2 Real track → `tracks.json`
 
-1. **Download.** Overpass query for `way["railway"="rail"][!"service"]` (main and branch lines, no sidings or
-   yards), in five latitude strips (one country-wide query tends to time out on the public servers). Each strip is
-   retried on four public Overpass servers. The merged response is saved to `sources/osm_rail.json` and reused;
-   `--refresh` downloads again.
-2. **Graph.** Every OSM node is a vertex, every consecutive node pair on a way is an edge weighted by its
-   great-circle length. Ways that share a node are connected.
-3. **Virtual crossovers.** OSM maps crossovers and some junctions as service track, which the query excludes. Nodes
-   of different ways that lie within 15 m of each other (parallel tracks) are joined with an edge of
-   `distance + 20 m`. The penalty keeps routes from hopping between tracks without reason.
-4. **Main network only.** The largest connected component is kept for snapping. Small detached fragments, such as
-   station tracks tagged differently, would otherwise leave a station with no route.
-5. **Snap.** Each station snaps to the nearest node of that network (grid search). Stations more than 600 m from
-   any track are skipped.
-6. **Route.** For every pair of consecutive stops on any line, the shortest path between their snapped nodes
-   (Dijkstra). Pairs are unordered and shared, so a stretch used by several lines is computed once.
-7. **Sanity check.** A path longer than `2.2 × straight distance + 2 km` is rejected as a likely detour.
-8. **Simplify.** Ramer–Douglas–Peucker with an 8 m tolerance (in a local metric projection).
+`osm_tracks.py` turns OpenStreetMap rail into one polyline per pair of consecutive stops:
 
-The latest run, on OSM data from 25 Nov 2026, matched 87 of 89 segments. The two missing ones belong to the closed
-Jerusalem line, which has no active track; the app draws those straight. `out/tracks_report.txt` also notes
-stations whose GTFS point lies far from the track centre line (up to 290 m, at Yokneam).
+1. **Download** in five latitude strips, each retried on four public Overpass servers; cached in
+   `sources/osm_rail.json`.
+2. **Graph:** OSM nodes are vertices, way segments are edges weighted by length. Crossovers are often tagged as
+   service track (excluded), so nodes of parallel tracks within 15 m are joined by a virtual edge (+20 m penalty).
+3. **Snap** each station to the nearest node of the largest connected network (at most 600 m).
+4. **Route** every pair of consecutive stops on any line with Dijkstra; reject paths longer than
+   2.2 × straight distance + 2 km; simplify with Ramer–Douglas–Peucker (8 m).
 
-### 5. Basemap (`build_basemap.py`)
+Result: 87 of 89 segments (the other two are on the closed Jerusalem line and are drawn straight).
 
-Natural Earth 10m land, lakes, urban areas, rivers and roads (major and secondary highways only), clipped to
-33.9–36.2°E, 29.3–33.5°N with shapely and simplified (0.001–0.002°). National borders are deliberately left out.
+```ts
+{ source, osm_base, segments: { "A|B": { km, c: [lon, lat][] } } }   // A < B; coordinates run from A to B
+```
 
-### 6. Timetable (`gtfs_timetable.py`)
+### 2.3 Timetable → `timetable.json`
 
-Exports the train timetable for the trip planner from the same MOT GTFS feed (the ~200 MB zip, downloaded once
-to `pipeline/sources/` and not committed). The feed covers all public transport in Israel; only `route_type = 2`
-(rail) is kept, so `timetable.json` is a small fraction of the feed.
+`gtfs_timetable.py` keeps only rail (`route_type = 2`) from the feed and writes only what the feed says; a missing
+field is `null`, never guessed.
 
-- **Trips:** every train trip with its stations in order, scheduled arrival and departure (minutes after midnight
-  of the service day; trips past midnight keep values above 24:00), destination (`trip_headsign`, as on the
-  station boards) and train number (`trip_short_name`).
-- **Platforms:** from `stops.platform_code`, only if the feed has it.
-- **Service calendar:** weekdays and date range per service (`calendar.txt`), plus added and removed dates such as
-  holidays (`calendar_dates.txt`).
-- **Stations:** GTFS stops map to the station keys of `network.json` (through `parent_station` for platform-level
-  stops). Stations served by trains but not on the map get the key `G<stop_id>` and are listed in the report.
+- **Trips:** stations in order with scheduled arrival and departure in minutes after midnight of the service day
+  (above 1440 after midnight), and the train number (`trip_short_name`, or the headsign when the feed puts the number
+  there, as it currently does). The destination shown in the app is the trip's last station.
+- **Calendar:** weekdays and date range per service, plus added and removed dates.
+- **Stations:** mapped to the keys of `network.json` (via `parent_station`, or a Hebrew-name match within 1 km for
+  stops with another id).
+- **Not in the feed:** platforms, delays, cancellations. The app shows none of them.
 
-Only facts from the feed are written: a field the feed lacks is `null`, never guessed. `out/timetable_report.txt`
-lists which fields the feed has, sample trips (to see what train numbers and destinations look like), the dates
-covered, and the file size. No live data (delays, cancellations) is used anywhere.
+```ts
+{ feed: { start, end, published /* when the Ministry built it */, generated, fields },
+  services: { [id]: { days: "1111100" /* Mon..Sun */, start, end, add: string[], remove: string[] } },
+  trips: { id, n /* train number */, h, s /* service */, st: [station, arr, dep, platform][] }[] }
+```
+
+### 2.4 Basemap and places → `basemap.json`, `places.json`
+
+`build_basemap.py` clips Natural Earth to 33.9–36.2°E, 29.3–33.5°N and simplifies it (shapely); only major and
+secondary highways are kept, and no borders. `osm_places.py` writes each city and town with its English and Hebrew
+name, population (when OSM has one) and whether it is a city; duplicate names keep the entry with a population.
+
+### 2.5 Keeping it current
+
+- **Timetable:** the Ministry republishes often, including short-term changes such as works. Today:
+  `gtfs_timetable.py --refresh`. Planned: a nightly GitHub Action that refreshes, validates (trip count, at least
+  7 days covered, every station still served) and commits, or opens an issue and keeps the last good file. The app
+  names the timetable it uses and shows no trains for days the file doesn't cover.
+- **Map vs. timetable:** `gtfs_rail.py` reports stations that moved more than 30 m, new stations, and map lines whose
+  stop order no longer appears in any train's stops: the signal that the schematic needs updating.
+- **Track and places:** rarely change; rerun the scripts when wanted.
 
 ---
 
-## Data files
+## 3. Visualization
 
-All coordinates are WGS84 `[lon, lat]`. Schematic positions are pixels of the 1115 × 1600 map image, y downwards.
+### 3.1 What is shown and how
 
-### `public/data/network.json`
+- **Stations** are white dots with a dark outline, one dot per line serving the station, at its place on the
+  schematic. The dots of one station are joined by a **bar** (dark outline, white inside), so an interchange reads as
+  one station.
+- **Lines** are polylines in the colour sampled from the official map, running through their dots in drawing order.
+  A line not in service is dashed.
+- **Labels** name each station in English or Hebrew (or none), on the side the official map uses; on the
+  geographic side they are placed to avoid each other.
+- **Basemap and places** appear at 100%: land, water, urban areas and roads, and city and town names with a dot each
+  (cities larger), placed after the station labels, bigger places first.
+- **Focus:** whatever is not part of the current selection, options or trip fades back to a faint trace.
+- **Connection options** (two stations chosen) are drawn in the map lines' colours, with the bars where they change.
+- **A picked trip** is drawn one colour per train (blue, orange, magenta), so every change of train is a change of
+  colour; the same colour marks each train's pill in the list. At a change, only the two dots used are shown, joined
+  by a short bar. Origin, changes and destination have dark labels; stops on the way have grey ones.
+- **The current position** is a triangle with a concave base in the colour of the train being ridden, pointing along
+  the route; hollow when the real position is more than 1 km away. A label centred above it shows only the next
+  action and its time ("Change at Tel Aviv University–Expo, in 12 min"; at the end "Arrive at Ashkelon").
 
-```ts
-{
-  meta: { title: string, sources: Record<string, string>, units: string },
-  stations: Array<{
-    id: string,               // short key, e.g. "TAU"
-    name: string,             // English
-    name_he: string,          // Hebrew, as on the map
-    gtfs_stop_id: number | null,
-    lon: number, lat: number,
-    label: "l" | "lr" | "r" | "t" | "b" | "bl"   // label side on the schematic
-  }>,
-  lines: Array<{
-    id: string,               // e.g. "orchid"
-    name: string,             // "Atlit – Beit She'an"
-    color: string,            // hex, sampled from the map
-    night: boolean,
-    inactive: boolean,        // not in service: drawn dashed, ignored by trip finding
-    stops: string[]           // station ids in drawing order
-  }>,
-  copies: Array<{             // one dot per station per line
-    id: string,               // `${station}.${line}`
-    station: string, line: string,
-    circle: number,           // index of the digitized circle
-    sx: number, sy: number    // schematic position (image pixels)
-  }>
-}
-```
+Dots, line widths and text keep their size on screen at any zoom; the label and dot size is a setting.
 
-### `public/data/tracks.json` (optional; without it every segment is straight)
+### 3.2 Between schematic and geographic
 
-```ts
-{
-  source: string,             // credit line
-  osm_base: string | null,    // OSM data timestamp
-  segments: {
-    // key "A|B" with A < B alphabetically; coordinates run from station A to station B
-    [pair: string]: { km: number, c: [number, number][] }
-  }
-}
-```
+A full walkthrough, with a worked example in real numbers, is in **[docs/interpolation.md](docs/interpolation.md)**.
+In short:
 
-### `public/data/basemap.json`
+The slider value `t` runs from 0 (schematic) to 1 (geographic). Every element has a schematic position `A` and a
+geographic position `B`, both in screen pixels, and is drawn at `(1 − t)·A + t·B`: a straight-line move, the same
+for all elements.
 
-```ts
-{
-  land:   [number, number][][],              // polygon rings
-  lakes:  [number, number][][],
-  urban:  [number, number][][],
-  rivers: [number, number][][],              // polylines
-  roads:  Array<{ c: [number, number][], k: "Major Highway" | "Secondary Highway" }>
-}
-```
+**Two layouts, one unit.** Map-image pixels and degrees can't be mixed, so both ends are first turned into screen
+pixels for the same viewport, each on its own, and only those are interpolated:
 
-### `public/data/timetable.json`
+1. **Schematic → screen:** the dots' `(sx, sy)` are scaled uniformly (aspect kept) and shifted so the whole schematic
+   fills the viewport, with room for labels at the sides and for the slider at the top. This gives `A`.
+2. **Geographic → screen:** each station's `(lon, lat)` is projected with a Transverse Mercator centred on
+   35.2044°E, 31.7344°N (the Israeli grid's central meridian; flat x/y, y down), then scaled and shifted by a second,
+   independent fit into the same viewport. This gives `B`. Track and basemap points use the same projection and fit.
+3. **Interpolate:** `P = (1 − t)·A + t·B`, in pixels; zoom and pan are applied on top (`k·P + (x, y)`).
 
-```ts
-{
-  feed: { start: "YYYYMMDD", end: "YYYYMMDD", generated: string, fields: Record<string, boolean> },
-  stations: { [key: string]: { name: string, name_he: string | null, lat: number, lon: number } }, // not on the map
-  services: {
-    [service_id: string]: { days: string /* Mon..Sun, e.g. "1111101" */, start: string, end: string,
-                            add: string[], remove: string[] }                                      // YYYYMMDD dates
-  },
-  trips: Array<{
-    id: string,               // GTFS trip_id
-    n: string | null,         // train number (trip_short_name)
-    h: string | null,         // destination as on the boards (trip_headsign)
-    s: string,                // service_id
-    st: Array<[station: string, arrival: number | null, departure: number | null, platform: string | null]>
-  }>
-}
-```
+So at 0% the schematic fills the screen, at 100% the geography does, and the scale changes smoothly in between.
+Both fits are recomputed when the window size changes.
 
-### Browser storage
+**Where a station sits on the schematic.** A station has no single schematic position: the official map draws it
+once per line that serves it (an interchange is a row of circles joined by a bar). The digitized circles are
+assigned to lines as `(station, circle)` pairs, which gives one dot per station per line (`TAU.orchid`, …), each at
+its own circle's pixel centre; a station on five lines has five. Geographically, a station has one position (from
+GTFS).
 
-`localStorage["israil.settings.v1"] = { size: number (6–18), lang: "en" | "he" | "off", maxChanges: 0 | 1 | 2,
-minChange: integer 0–10 }`. Invalid or missing values fall back to `{ size: 10, lang: "en", maxChanges: 2, minChange: 0 }`.
+**Stations.** Each dot moves from its own circle to its station's single real position. All dots of a station share
+that end point, so at 100% they merge into one and the bar joining them shrinks to nothing. Where one point per
+station is needed, a representative dot is used: for a label, the dot on the side the map puts the label (leftmost
+for a label on the left, rightmost on the right, top or bottom one above or below); for a chord between stops that
+no map line joins, the station's first dot.
 
-`localStorage["israil.planner.v1"] = { saved: {a, b}[], prefs: { "FROM>TO": station[] } }`: favourites (starred
-searches, each covering both directions) and the change stations last chosen per direction. The user's location is
-never stored.
+**Lines.** A line's segments run between that line's own dots, so on the schematic every line keeps its own lane
+and the lanes converge onto the shared track. Every segment between two stops is resampled to 64 points spaced evenly by length, once along the
+straight schematic segment and once along the real track (station → OSM track → station). Point *k* moves from its
+schematic place to its geographic place. Because both ends of each segment are the dots themselves, lines stay
+attached to the stations at every `t`, and at 100% they follow the real track.
 
----
+**Labels.** Each label has a schematic place (next to its dot, on the map's side, wrapped as on the map) and a
+geographic place (worked out for the final positions: left, above, below or right, whichever first overlaps no other
+label or dot; never hidden), and moves line by line between the two.
 
-## Keeping the data up to date
+**Trips** are cut from the same 64-point segments of the lines their trains ride (and so start and end at those
+lines' dots), so a picked trip morphs exactly with the lines.
 
-Each source changes at a different pace:
+### 3.3 Snapping the current position
 
-| Data | Changes | Kept current by |
-|---|---|---|
-| Train timetable (GTFS) | The Ministry republishes the feed often, including changes for the next few days | Nightly automatic update *(planned)*; today `python pipeline/gtfs_timetable.py --refresh` |
-| Station coordinates, stop order | When stations open or services are reorganized | Automatic check, a person approves *(planned)* |
-| Real track (OpenStreetMap) | Rarely: new lines, corrections | Monthly automatic update *(planned)*; today `python pipeline/osm_tracks.py --refresh` |
-| City and town names (OpenStreetMap) | Rarely | `python pipeline/osm_places.py` when wanted |
-| Schematic map (Israel Railways) | A few times a year, with timetable changes | Manual, following [docs/update-schematic-map.md](docs/update-schematic-map.md) (scripted circle detection, assignments by hand with a ready-made prompt) |
-| Natural Earth basemap | Practically never | Nothing to do |
+The GPS position is matched to the trip, not to the map:
 
-### Nightly timetable update (planned)
+1. The trip's real-world shape is known piece by piece (each piece is one segment of the route: station → OSM track
+   → station).
+2. The position is projected onto the nearest point of that shape (in a local metric projection), which gives a
+   piece and the share of its length already travelled.
+3. Since the segments are resampled evenly by length, that share is directly an index into the piece's 64 points.
+   The marker is placed at that index on the interpolated segment, so it sits on the route at any `t`, on the
+   schematic as well as on the real track.
+4. It points towards the route a little further ahead. Where a route passes the same track twice, pieces before the
+   last matched one count 300 m further away, so the marker doesn't jump back.
 
-A scheduled GitHub Actions workflow, run each night:
-
-1. downloads the GTFS feed and runs `gtfs_timetable.py`;
-2. validates the result: the file parses, the number of trips hasn't dropped sharply against the last good
-   version, the feed covers at least the next 7 days, and every station on the map still has trains;
-3. if the checks pass and the timetable changed, commits `public/data/timetable.json`; Cloudflare then deploys
-   `main` automatically;
-4. if anything fails, commits nothing (the site keeps the last good timetable) and opens a GitHub issue.
-
-The same job runs the `gtfs_rail.py` check. A new station, a moved station, or a map line whose stop order no
-longer matches any GTFS pattern opens an issue: the signal that the schematic map needs updating.
-
-A Cloudflare scheduled Worker is not used for this: a Worker's memory is too small to unpack the ~200 MB feed.
-If the Ministry's server refuses downloads from GitHub's (non-Israeli) runners, the fallback is to run the same
-script on a schedule on a machine in Israel and push the result.
-
-### Safety net in the app
-
-The app knows the date range of its timetable (`feed.start`–`feed.end`). A search outside that range says the
-timetable data has ended instead of showing trains that may no longer run; tomorrow is listed only if covered.
+The location is asked for only when a trip is started, used on the device and never stored.
 
 ---
 
-## Interpolation
+## 4. Interaction
 
-The slider value is `t ∈ [0, 1]`: 0 is the schematic, 1 is the geography. Everything moves linearly in screen
-space. Each element has a schematic position and a geographic position, and is drawn at `lerp(A, B, t)`.
+The header (title, undo ↺, settings ⚙) is on every page. Dots at the bottom show the page; tap them, or swipe
+sideways on a page (phone).
 
-### Two layouts in one viewport
+- **Phone:** three pages, one task each: Favourites · **Map** (opens first) · Trips.
+- **Desktop:** the map is always visible, next to a panel with two pages: Favourites · **Plan**.
 
-- **Schematic:** the dots' image-pixel positions.
-- **Geographic:** station coordinates projected with a Transverse Mercator centred on 35.2044°E, 31.7344°N (the
-  central meridian of the Israeli TM grid; `d3-geo`). y points south.
+### 4.1 Selecting
 
-Each layout is fitted to the viewport separately (`fitter` in `src/core/geometry.ts`): uniform scale, aspect ratio
-kept, centred, with side padding for labels (14% of the width, 28–90 px) and a 56 px band kept free at the top for
-the slider bar. Both are recomputed when the window resizes.
+- **Slider:** schematic ⇄ geographic.
+- **Zoom:** + and − (two steps: 1×, 2×, 4×), pinch or wheel. **Pan** by dragging; the centre of the network always
+  stays on screen.
+- **Hover** a line to highlight it with its stations; hover a station to highlight every line through it.
+- **Tap a station** (dot or label): the first is From, the second To. A chip at the top shows the selection.
+- **Undo** (↺, the chip's ✕, double tap on empty map space, or Esc) goes back one step: ends a trip, else unpicks
+  the trip, else clears the stations. A single tap on empty space does nothing.
+- **Settings:** station names (English, עברית, off), label and dot size, most changes (direct, 1, 2), minimum time to
+  change (0–10 min). Saved in the browser.
 
-### Points (stations)
+### 4.2 Planning a trip
 
-Dot `i` of station `s` on line `L` has schematic position `Aᵢ` (its circle) and geographic position `B_s` (the
-station). It is drawn at
+**1 · Choose.** Tap two stations on the map, type them (suggestions in English or Hebrew), or open a favourite (☆
+stars a search, ★ removes it; ⇅ swaps the direction). The day and time default to today and now.
 
-```
-Pᵢ(t) = (1 − t) · Aᵢ + t · B_s
-```
+**2 · Pick a trip.** The list shows the chosen day and the next, opened at the chosen time (red line): earlier trains
+above, later below, departed trains greyed out. Each row: departure – arrival, duration, changes, and the trains as
+number and destination ("127 Modi'in Center › 667 Be'er Sheva Center"). Meanwhile the map shows all the connection
+options in the list. Below the list the app names the Ministry timetable it uses and when it was published.
 
-All dots of a station share the same `B_s`, so at t = 1 they meet in one point. The bars joining a station's dots
-are polylines through its dots (sorted along their main axis), so they shrink to that point.
+**3 · Choose where to change.** Opening a row lists, for each change, every station where it works, with arrival,
+departure and the minutes in between; the first is ticked, or the one chosen last time for this direction. The map
+shows only this trip. "Show stops" lists every stop with its time.
 
-### Paths (lines)
+**4 · ▶ Start.** The map opens (phone), zooms to the trip and glides to 100%; the marker follows the position. The
+Trips page now shows the trip in progress: trains and stops, the current train stressed, and End.
 
-Each line is a chain of segments between consecutive stops. Every segment is resampled twice to `N = 64` points
-spaced evenly by arc length (`resample` in `src/core/geometry.ts`):
+**How the trips are found.**
 
-- **schematic:** the straight line between the two dots;
-- **geographic:** station A, the track polyline from `tracks.json` (reversed if the pair key runs the other way),
-  then station B, all projected and fitted. If no track is known, the straight line between the two stations.
+- **Search:** for the chosen day (with the trains of the days around it, for trips across midnight), a round-based
+  search in the style of RAPTOR starts from every train leaving the origin and finds the earliest arrival with 0, 1
+  and 2 changes. Waiting at a change is not capped (a cap would make this search lose journeys); no trip may take
+  more than 24 hours. A day and the next take about 100–200 ms.
+- **Pareto filter:** a trip is dropped if another leaves no earlier, arrives no later and has no more changes. This
+  removes slow detours, and late trips that only arrive by waiting overnight.
+- **Change stations:** a trip is a sequence of trains with fixed departure and arrival; every combination of
+  stations where the trains meet in time is offered, in riding order.
+- **Honesty:** only scheduled times. No platforms (not in the feed) and no estimate of whether a change is long
+  enough: the change time is shown and the user judges, or sets a minimum in the settings.
+- **Tests:** a brute-force search without any pruning lists every trip with up to two changes for several station
+  pairs and days of the real timetable; each must be matched by a listed trip at least as good. A small hand-made
+  timetable reproduces a real case (Kfar Yehoshua 15:01 → Hof HaCarmel → train 419 → Be'er Sheva North 17:56).
 
-Point `k` of the segment moves linearly: `Qₖ(t) = (1 − t) · Sₖ + t · Gₖ`. The segments of a line are joined
-(dropping the duplicate end/start point) into one polyline of `64·n − (n − 1)` points. The first and last points of
-each segment coincide with the dots, so lines and dots stay attached at every t. Trip routes are cut out of the
-same polyline, so they follow the same curves.
-
-Why 64: enough for a smooth curve around the bends (most segments have fewer than 40 track points after
-simplification), and cheap. Each frame computes about 10,000 points.
-
-### Labels
-
-A label has one position on each side and slides linearly between them, line by line.
-
-- **Schematic side:** the label sits next to one reference dot of its station, on the side the map uses (`label`
-  in `network.json`): `l` = left of the leftmost dot, right-aligned; `r` = right of the rightmost dot; `t`/`b` =
-  above/below, centred; `bl` = below-left; `lr` = left of the rightmost dot. A dot that has a neighbour (the
-  previous or next stop, or another dot of its station) on both its left and right gets its label centred below
-  instead. Names placed above or below are split onto two lines at the first dash (else the last space), as on the
-  map. The same lines are used on the geographic side, so a label never re-wraps while it moves.
-- **Geographic side:** worked out once for the final positions, then cached until zoom, size or language changes.
-  Stations are placed in a fixed order: most lines first, then north to south. Each label tries **left, above,
-  below, right** and takes the first position that overlaps no placed label, no dot centre of another station
-  (inner 45% of the radius) and stays on screen. Lines may be crossed. If every position collides, the
-  least-colliding one is used: labels are never hidden.
-- **Spacing:** the gap between a dot and its label is `r + 4 px`. Label widths are measured with the real SVG text
-  (`getComputedTextLength`), not estimated.
-
-### Zoom and pan (limits)
-
-Two zoom steps (1×, 2×, 4×; the + and − buttons double and halve). Panning keeps the centre of the network (as
-drawn at the current slider value) on screen, at every zoom level. Double click/tap does not zoom; it clears the
-selection.
-
-### City names on the geographic map
-
-At 100% the map shows city and town names from OpenStreetMap (`places.json`), with a dot each, in the station-name
-language. They are placed greedily (`placeCities` in `src/core/labels.ts`), bigger places first (cities, then by
-population): to the right of the point, else to the left, and left out where they would cover a station label, a
-station dot or another name. Zooming in therefore shows more of them.
-
-### Zoom and pan (rendering)
-
-`d3-zoom` provides a transform `(k, x, y)` that is applied to positions only: `P' = k·P + (x, y)`. Dots, line
-widths and text keep their pixel size, so zooming in gives the map more room, as on a web map. The limits are
-described above (`scaleExtent` 1–4 and a custom `constrain`). The basemap is one SVG group with that transform and
-non-scaling strokes.
-
-### Trip planner (`src/core/journeys.ts`, `src/core/route.ts`, `src/ui/Planner.tsx`)
-
-The header ("Israil · the map ⇄ the track") with the undo button (↺) and the settings gear is on every page. Dots at the bottom show the
-page; tap a dot (or, on a phone, swipe left/right on a page) to move between pages.
-
-**Phone: three pages, one task each** (dots, left to right: Favourites, Map, Trips; the map opens first).
-1. **Map.** The map, slider and zoom. It always shows the current state: the selected stations, the connection
-   options, the picked trip, and during a trip the moving marker. The first tapped station is From, the second
-   To, and then the trips page opens.
-2. **Favourites.** The starred searches; tapping one is the same as picking its two stations, ★ removes it.
-3. **Trips.** From and To (with suggestions in English or Hebrew, ⇅ to swap, ☆ to star), the day (shown as
-   "Sun 29 Nov") and time (default today and now; "Now" goes back to them), and the list for that day and the next,
-   opened at the chosen time (red line); earlier trains above, later ones below, trains already gone greyed out.
-   The list opens at the chosen time when the search changes (stations, day, time, settings), not as the clock
-   ticks, and keeps its scroll position when the page is reopened. Picking a trip shows its change stations; the
-   start button (▶) starts it and switches to the map, which glides to 100%. During the trip this page shows the
-   trip in progress instead: its trains and stops, the current train stressed, and End.
-
-**Desktop: two pages** (dots: Favourites, Plan; Plan opens first), with the map always visible: **Plan** (the fields fill as stations are picked, the list
-appears once both are set, and the trip in progress replaces it after ▶) and **Favourites**.
-
-**Clearing.** A chip at the top of the map shows the current state (the stations, the picked trip's time, or "Trip
-in progress"). The undo button (↺) in the header, the chip's ✕, a double tap or double click on empty map space, or Esc undoes
-the latest step: ends the trip,
-else unpicks the trip, else clears the stations. A single tap on empty space does nothing.
-
-**The marker** (during a trip) shows only the next action, in a label always centred above it (15 px clear):
-"Change at Tel Aviv University–Expo, in 12 min", or at the end "Arrive at Ashkelon, in 25 min". Once a scheduled
-time has passed it shows "at 13:22" instead of a countdown. The marker has the colour of the train the user is on (the same colour as that train's
-line on the map), and its label is kept inside the map.
-
-**Demo for screen recordings.** Add `?simulate=20` to the address (e.g. `http://localhost:5173/?simulate=20`): a
-started trip then moves a simulated position from start to destination in 20 seconds (after the slider has
-reached 100%), and the clock runs from departure to arrival, so the countdowns tick down. Without the parameter the
-app uses the real location as usual. `pointAlong` in `src/core/route.ts` gives the position along the route.
-
-Only scheduled times from the timetable are shown, never estimates or delays. Below the list the app says when the
-Ministry published the timetable in use (`feed.published`), since a later change (e.g. works cancelled) is not in it. There is no platform information
-(the feed has none) and no minimum change time: every connection is listed with its change time, and the user
-judges whether it is enough.
-
-**Search.** For one service day, the trains of that day and of the days before and after (shifted by ±24 h, for
-trains around midnight) are indexed by station. For each train that can be boarded at the origin, a round-based
-search in the style of RAPTOR finds the earliest arrival with 0, 1 and 2 changes: round 1 rides that train; each
-further round boards, at each station whose arrival improved in the previous round, every later train, and keeps
-an arrival only if it beats the best one at that station. Nothing later than the best arrival at the destination,
-or more than 24 hours after setting off, is followed. Waiting at a change is deliberately not capped: with a cap,
-arriving later at a station could open up a train that arriving earlier could not, and this pruning would lose
-journeys. Today and tomorrow together take about 100–200 ms for one station pair.
-
-**Pareto filter.** A journey is dropped if another one leaves at the same time or later, arrives at the same time
-or earlier and has no more changes. This removes slow detours and trains you would only take to wait somewhere.
-Today's list is also checked against tomorrow's, so a late journey that only arrives by waiting overnight is
-dropped when tomorrow morning's train gets there as early.
-
-**Tests** (`tests/search-completeness.test.ts`): a brute-force search with no pruning lists every journey with up
-to two changes on the real timetable (several station pairs, a weekday, a Friday and the feed's first day); each
-must be matched by a listed journey at least as good. A small hand-made timetable reproduces a known real case
-(Kfar Yehoshua 15:01 → Hof HaCarmel, train 419 → Be'er Sheva North 17:56, one change) and checks the four Haifa
-change stations offered.
-
-**Change stations.** A journey is a sequence of trains; departure and arrival are fixed by the first and last
-train, but the change can often happen at several stations (e.g. any of the four Tel Aviv stations). All valid
-combinations are listed in riding order; picking a station in one slot keeps the other slots where possible.
-
-**On the map.** Each leg's stops are joined along the map's line segments (shortest path, preferring to stay on one
-line; each train starts on the line with most of its stops). These pieces use the same 64-point segment geometry as
-the lines, so the journey morphs with the slider. Where no map line joins two consecutive stops, a dotted chord is
-drawn.
-
-**Position marker.** The GPS position is snapped to the nearest point of the journey's real-world shape (station →
-OSM track → station), giving a piece and a share of its length. Because the segments are resampled by length,
-that share is an index into the 64 points, so the marker can be drawn at any slider position, schematic included.
-It is rotated towards the next points of the route. More than 1 km from the route, it is drawn hollow and the
-panel says how far away the user is. Where a route passes the same track twice, the snap prefers pieces at or
-after the last one, so the marker doesn't jump back.
-
-### What the map shows while planning
-
-Only timetable journeys, never the printed lines on their own (a line on the printed map may not run on the day in
-the list): before a trip is picked, all the ways the listed journeys go (`optionsOf`, in the map lines' colours,
-with the station bars where they change); after, only the picked journey, one colour per train. If the timetable
-can't be loaded, the list says so and the map shows just the two stations.
-
-### Settings that steer the search
-
-In the gear menu: **most changes** (direct only, 1 or 2; default 2) and **time to change at least** (0–10 min;
-default 0). Both are passed to the search (`SearchOpts`); a fixed extra margin at every change keeps the pruning
-exact, and the brute-force tests run with non-default values too. When either differs from the default, the
-list says so above the trips.
-
-### Updating the schematic map
-
-When Israel Railways publishes a new map, follow [docs/update-schematic-map.md](docs/update-schematic-map.md):
-circle detection is scripted; the assignment of circles to stations and lines is done by hand, with a ready-made
-prompt for Claude.
+**Demo.** `?simulate=20` in the address makes a started trip move a simulated position from start to destination
+in 20 seconds, with the clock running from departure to arrival: for screen recordings.
 
 ---
 
-## App
+## 5. Developer
+
+**Stack:** Vite, React, TypeScript, `d3-geo` and `d3-zoom`, Vitest; deployed as a Cloudflare Worker with static
+assets.
 
 ```
-src/core/        pure, unit-tested logic: geometry, labels, journeys (timetable search), route (map
-                 path + GPS snapping), planner (saved searches), time (Israel time), settings
-src/data/        data types and loading (network, basemap, tracks, timetable)
-src/map/         NetworkMap (imperative SVG controller) + MapView (React wrapper)
-src/ui/          Planner, StationInput, JourneyPanel, SettingsMenu
-worker/          Cloudflare Worker (only /api/* reaches it)
-tests/           Vitest
+src/core/    logic with unit tests: geometry, labels, journeys (search), route (map path, snapping),
+             planner (favourites), time (Israel time), settings
+src/data/    data types and loading
+src/map/     NetworkMap (draws and updates the SVG directly) + MapView (React wrapper)
+src/ui/      Planner, StationInput, Favorites, JourneyPanel, SettingsMenu, StageDots
+worker/      Cloudflare Worker (only /api/* reaches it)
+pipeline/    data scripts (section 2)
+tests/       Vitest
+docs/        interpolation.md (how the morph works), update-schematic-map.md
 ```
 
-React owns the UI state (slider, settings, search, picked journey, journey mode). `NetworkMap` owns the SVG and updates attributes directly,
-because the slider changes thousands of points per frame. A map created after the first render starts from the
-current settings, so saved settings always apply.
+**Icon:** a closed S, blue then orange (two trains, one change), on white, with three stations and a straight white
+line (black outline) through them: the real track and the schematic in one mark. `pipeline/make_icons.py` writes
+`public/favicon.svg`, `favicon.ico`, `apple-touch-icon.png` (180 px, square; iOS rounds the corners), `icon-192.png`,
+`icon-512.png` and `icon-maskable-512.png` (Android, content inside the safe zone), all listed in
+`public/site.webmanifest`. It needs `rsvg-convert` and ImageMagick.
 
-Stack: Vite, React, TypeScript, `d3-geo`, `d3-zoom`, Vitest; deployed as a Cloudflare Worker with static assets.
+React owns the state (slider, search, picked trip, trip in progress, settings); `NetworkMap` owns the SVG and
+updates attributes directly, since the slider moves about 10,000 points per frame.
 
-## Develop
+**Run:**
 
 ```bash
-npm ci                 # install exactly what's in package-lock.json (use npm install only to add/update packages)
-npm run dev            # Vite dev server, Worker included
-npm test               # unit tests
-npm run build          # production build into dist/
-npm run preview        # run the production build locally (workerd), no Cloudflare account needed
-npx wrangler preview   # after a build: upload a remote Preview URL to your Cloudflare account
+npm ci            # install (Node 22)
+npm run dev       # dev server, Worker included
+npm test          # unit and completeness tests
+npm run build     # production build into dist/
+npm run preview   # run the build locally (workerd)
 ```
 
-## Deploy
+**Deploy:** Cloudflare **Workers & Pages → Import a repository**, build command `npm run build`, deploy command
+`npx wrangler deploy`. Every push to `main` deploys; other branches get preview URLs. Access can be limited with
+Cloudflare Access (Worker → Access). Manual deploy: `npx wrangler login`, then `npm run deploy`. CI (GitHub Actions)
+runs typecheck, tests and build on every push.
 
-Cloudflare dashboard → **Workers & Pages → Create → Import a repository**, with build command `npm run build` and
-deploy command `npx wrangler deploy`. Every push to `main` deploys; other branches get preview URLs. Manual
-deploy: `npx wrangler login`, then `npm run deploy`.
+**Browser storage:** `israil.settings.v1` (`size`, `lang`, `maxChanges`, `minChange`) and `israil.planner.v1`
+(favourites, and the change stations last chosen per direction). The location is never stored.
