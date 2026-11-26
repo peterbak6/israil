@@ -6,6 +6,7 @@ dist
 .DS_Store
 # pipeline inputs that are large or not ours to redistribute
 pipeline/sources/*.zip
+pipeline/sources/*.zip.old
 pipeline/sources/*.jpg
 pipeline/sources/*.png
 pipeline/sources/*.pdf

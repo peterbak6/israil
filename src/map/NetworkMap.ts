@@ -3,7 +3,7 @@ import { zoom, zoomIdentity, type ZoomBehavior, type ZoomTransform } from "d3-zo
 import type { Basemap, Lang, Line, Network, Ring, Station, Tracks } from "../data/types";
 import { fitter, lerp, project, resample, type Pt } from "../core/geometry";
 import { blockAt, labelLines, placeGeographic, placementOrder, schematicLabelRefs, type LabelBlock, type LabelStyle } from "../core/labels";
-import type { TripOption } from "../core/routing";
+import { TRAIN_COLORS, type Piece } from "../core/route";
 
 const NS = "http://www.w3.org/2000/svg";
 const el = <K extends keyof SVGElementTagNameMap>(tag: K, cls?: string, parent?: Element) => {
@@ -18,6 +18,18 @@ const pts = (ps: Pt[]) => ps.map((p) => p[0].toFixed(1) + "," + p[1].toFixed(1))
 export const SEGMENT_POINTS = 64;
 /** A stretch of a line between two of its stops (indices into line.stops). */
 type Span = { line: string; i0: number; i1: number };
+
+/** A journey to draw: map pieces in riding order, the stations the trains stop at, and the stations to stress
+ * (origin, destination, changes). */
+export type MapJourney = {
+  pieces: Piece[]; stops: string[]; legLine: (string | null)[]; key: string[];
+  /** "train": one picked journey, one colour per train. "options": all connection options, in the map lines' colours. */
+  colorBy?: "train" | "line";
+};
+/** The user's position snapped to the journey (piece index, share of that piece's length), with the text shown
+ * under the marker. `far`: the real position is far from the route, so the marker is drawn hollow. */
+export type MapMe = { piece: number; frac: number; far: boolean; lines: string[]; big: string; sub: string };
+type RouteSpan = { line: string | null; i0: number; i1: number; a?: string; b?: string };
 
 /** What is highlighted. Selected stations always stay visible on top of this. */
 type Focus = { segs: Set<string>; dots: Set<string>; labels: Set<string>; links: Set<string>; route?: boolean } | null;
@@ -54,7 +66,6 @@ export class NetworkMap {
   private lang: Lang = "en";
   private labelsOn = true;
   private sel: string[] = [];
-  private trip: TripOption[] | null = null;
   private hoverFocus: Focus = null;
   private st: Map<string, Station>;
   private refs: ReturnType<typeof schematicLabelRefs>;
@@ -66,7 +77,15 @@ export class NetworkMap {
   private segGeom = new Map<string, { sch: Pt[]; geo: Pt[] }[]>();
   private linkEls: [SVGPolylineElement[], string[], string][] = [];
   private lblEls = new Map<string, SVGTextElement>();
-  private routeEls: [SVGPolylineElement, Span][] = [];
+  private routeEls: [SVGPolylineElement, RouteSpan][] = [];
+  /** short bars joining the two dots used where a journey moves between map lines (e.g. at a change) */
+  private xferEls: [SVGPolylineElement[], string, string][] = [];
+  private journey: MapJourney | null = null;
+  private me: MapMe | null = null;
+  private meEl!: SVGPathElement;
+  private meLbl: HTMLDivElement;
+  /** one dot per station, for placing chords */
+  private stationCopy = new Map<string, string>();
   private geoCache: { key: string; blocks: Map<string, LabelBlock> } = { key: "", blocks: new Map() };
   /** label widths measured with the real SVG text (canvas measurement can differ slightly) */
   private textW = new Map<string, number>();
@@ -80,10 +99,17 @@ export class NetworkMap {
     this.svg = el("svg", "map");
     host.appendChild(this.svg);
     for (const name of ["land", "net", "labels"]) this.g[name] = el("g", name, this.svg);
-    for (const name of ["segs", "hits", "route", "links", "dots"]) this.g[name] = el("g", name, this.g.net);
+    for (const name of ["segs", "hits", "route", "links", "dots", "me"]) this.g[name] = el("g", name, this.g.net);
+    for (const c of net.copies) if (!this.stationCopy.has(c.station)) this.stationCopy.set(c.station, c.id);
+    // position marker: a triangle with a concave base, pointing up before rotation
+    this.meEl = el("path", "me-arrow", this.g.me);
+    this.meEl.setAttribute("d", "M0,-12 L9,10 L0,5 L-9,10 Z");
     this.tip = document.createElement("div");
     this.tip.className = "tip";
     host.appendChild(this.tip);
+    this.meLbl = document.createElement("div");
+    this.meLbl.className = "me-lbl";
+    host.appendChild(this.meLbl);
     this.build();
 
     this.zoomer = zoom<SVGSVGElement, unknown>()
@@ -102,7 +128,7 @@ export class NetworkMap {
     this.layout();
   }
 
-  destroy() { this.ro.disconnect(); this.svg.remove(); this.tip.remove(); }
+  destroy() { this.ro.disconnect(); this.svg.remove(); this.tip.remove(); this.meLbl.remove(); }
 
   // ---------- public API ----------
   setT(t: number) { this.t = t; this.render(); }
@@ -122,13 +148,31 @@ export class NetworkMap {
     for (const s of this.net.stations) this.setLabelText(s);
     this.render();
   }
-  setSelection(sel: string[], trip: TripOption[] | null) {
+  setSelection(sel: string[]) {
     this.sel = sel;
-    this.trip = sel.length === 2 ? trip : null;
-    for (const [id, e] of this.dotEls) e.classList.toggle("sel", sel.includes(id.split(".")[0]));
+    this.applyFocus();
+    this.render();
+  }
+  /** Show one journey or the connection options; null goes back to the normal map. */
+  setJourney(j: MapJourney | null) {
+    this.journey = j;
     this.buildRoute();
     this.applyFocus();
     this.render();
+  }
+  setMe(m: MapMe | null) { this.me = m; this.render(); }
+  /** Zoom so the whole journey fills the view (below the slider bar). */
+  fitJourney() {
+    const j = this.journey, w = this.host.clientWidth, h = this.host.clientHeight;
+    if (!j || !this.A.size || !w || !h) return;
+    const S = SEGMENT_POINTS - 1, ps: Pt[] = [];
+    j.pieces.forEach((_, pi) => { for (const idx of [0, S / 2, S]) ps.push(this.routePoint(pi, idx)); });
+    const xs = ps.map((p) => p[0]), ys = ps.map((p) => p[1]);
+    const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+    const TOP = 56, pad = 48;
+    const k = Math.max(1, Math.min(16, (w - 2 * pad) / (x1 - x0 || 1), (h - TOP - 2 * pad) / (y1 - y0 || 1)));
+    const x = w / 2 - k * (x0 + x1) / 2, y = TOP + (h - TOP) / 2 - k * (y0 + y1) / 2;
+    select(this.svg).call(this.zoomer.transform, zoomIdentity.translate(x, y).scale(k));
   }
   zoomBy(k: number) { select(this.svg).call(this.zoomer.scaleBy, k); }
   resetZoom() { select(this.svg).call(this.zoomer.transform, zoomIdentity); }
@@ -244,13 +288,36 @@ export class NetworkMap {
   private buildRoute() {
     this.g.route.innerHTML = "";
     this.routeEls = [];
-    for (const o of this.trip ?? [])
-      for (const leg of o.legs) {
-        const e = el("polyline", "rt", this.g.route);
-        e.setAttribute("stroke", leg.line.color);
-        const i = leg.line.stops.indexOf(leg.from), j = leg.line.stops.indexOf(leg.to);
-        this.routeEls.push([e, { line: leg.line.id, i0: Math.min(i, j), i1: Math.max(i, j) }]);
+    this.xferEls = [];
+    if (this.journey) {
+      const j = this.journey, lineColor = new Map(this.net.lines.map((l) => [l.id, l.color]));
+      if (j.colorBy === "line") {
+        for (const p of j.pieces) {
+          const e = el("polyline", "rt" + (p.line ? "" : " chord"), this.g.route);
+          e.setAttribute("stroke", p.line ? lineColor.get(p.line)! : "#555");
+          this.routeEls.push([e, p.line ? { line: p.line, i0: p.seg, i1: p.seg + 1 } : { line: null, i0: 0, i1: 0, a: p.from, b: p.to }]);
+        }
+        return;
       }
+      const color = (leg: number) => TRAIN_COLORS[leg % TRAIN_COLORS.length];
+      // one colour per train (by its place in the journey), whichever map lines its track runs along
+      for (const p of j.pieces) {
+        const e = el("polyline", "rt" + (p.line ? "" : " chord"), this.g.route);
+        e.setAttribute("stroke", color(p.leg));
+        this.routeEls.push([e, p.line ? { line: p.line, i0: p.seg, i1: p.seg + 1 } : { line: null, i0: 0, i1: 0, a: p.from, b: p.to }]);
+      }
+      // where the track moves between map lines: within one train, the train's colour continues across;
+      // at a change of train, the station's bar joins the two dots used
+      j.pieces.forEach((p, i) => {
+        const q = j.pieces[i + 1];
+        if (!q || !p.line || !q.line || p.line === q.line) return;
+        const els = p.leg === q.leg
+          ? [el("polyline", "rt", this.g.route)]
+          : ["link-o hl", "link-i hl"].map((cls) => el("polyline", cls, this.g.route));
+        if (p.leg === q.leg) els[0].setAttribute("stroke", color(p.leg));
+        this.xferEls.push([els, `${p.to}.${p.line}`, `${q.from}.${q.line}`]);
+      });
+    }
   }
 
   // ---------- drawing ----------
@@ -299,7 +366,11 @@ export class NetworkMap {
       full.set(line, out);
     }
     for (const [e, sp] of [...this.segEls, ...this.hitEls, ...this.routeEls])
-      e.setAttribute("points", pts((full.get(sp.line) ?? []).slice(sp.i0 * S, sp.i1 * S + 1)));
+      e.setAttribute("points", pts(sp.line === null
+        ? [P.get(this.stationCopy.get((sp as RouteSpan).a!)!)!, P.get(this.stationCopy.get((sp as RouteSpan).b!)!)!]
+        : (full.get(sp.line) ?? []).slice(sp.i0 * S, sp.i1 * S + 1)));
+    for (const [pair, a, b] of this.xferEls) { const s = pts([P.get(a)!, P.get(b)!]); pair.forEach((e) => e.setAttribute("points", s)); }
+    this.drawMe();
 
     // Labels move like the dots: a straight line from the map position to the geographic position.
     if (this.labelsOn) {
@@ -318,6 +389,40 @@ export class NetworkMap {
     this.g.land.style.opacity = this.t >= 1 ? "1" : "0";
   }
 
+  /** A point on the journey: piece `pi`, `idx` samples (0..SEGMENT_POINTS-1) along it in riding order. Pre-zoom. */
+  private routePoint(pi: number, idx: number): Pt {
+    const S = SEGMENT_POINTS - 1, p = this.journey!.pieces[pi];
+    const at = (k: string) => { const c = this.stationCopy.get(k)!; return lerp(this.A.get(c)!, this.B.get(c)!, this.t); };
+    if (!p.line) return lerp(at(p.from), at(p.to), idx / S);
+    const g = this.segGeom.get(p.line)![p.seg], k = p.rev ? S - idx : idx;
+    const i0 = Math.max(0, Math.min(S - 1, Math.floor(k))), u = k - i0;
+    return lerp(lerp(g.sch[i0], g.geo[i0], this.t), lerp(g.sch[i0 + 1], g.geo[i0 + 1], this.t), u);
+  }
+
+  /** The position marker: on the route, pointing towards the next point of the route. */
+  private drawMe() {
+    const m = this.me, j = this.journey;
+    if (!m || !j || !j.pieces[m.piece]) { this.meEl.style.display = "none"; this.meLbl.style.display = "none"; return; }
+    const S = SEGMENT_POINTS - 1, idx = m.frac * S, cl = (v: number) => Math.max(0, Math.min(S, v));
+    const p = this.V(this.routePoint(m.piece, idx));
+    let a = this.V(this.routePoint(m.piece, cl(idx - 2))), b = this.V(this.routePoint(m.piece, cl(idx + 2)));
+    if (Math.hypot(b[0] - a[0], b[1] - a[1]) < 0.5) { a = this.V(this.routePoint(m.piece, 0)); b = this.V(this.routePoint(m.piece, S)); }
+    const dx = b[0] - a[0], dy = b[1] - a[1];
+    const deg = (Math.atan2(dy, dx) * 180) / Math.PI + 90;
+    this.meEl.style.display = "";
+    this.meEl.classList.toggle("far", m.far);
+    this.meEl.setAttribute("transform", `translate(${p[0].toFixed(1)},${p[1].toFixed(1)}) rotate(${deg.toFixed(1)})`);
+    // the label sits behind the arrow (on the stretch already travelled), so it never hides the route ahead
+    const G = 16, [lx, ly, tr] = Math.abs(dy) >= Math.abs(dx)
+      ? dy > 0 ? [p[0], p[1] - G, "translate(-50%,-100%)"] : [p[0], p[1] + G, "translate(-50%,0)"]
+      : dx > 0 ? [p[0] - G, p[1], "translate(-100%,-50%)"] : [p[0] + G, p[1], "translate(0,-50%)"];
+    this.meLbl.style.display = "block";
+    this.meLbl.style.left = lx + "px";
+    this.meLbl.style.top = ly + "px";
+    this.meLbl.style.transform = tr as string;
+    this.meLbl.innerHTML = m.lines.map((l) => `<div>${esc(l)}</div>`).join("") + `<b>${esc(m.big)}</b><div class="m">${esc(m.sub)}</div>`;
+  }
+
   // ---------- highlighting ----------
   private linesFocus(lineIds: Set<string>, links: string[] = []): Focus {
     const ls = this.net.lines.filter((l) => lineIds.has(l.id));
@@ -329,32 +434,46 @@ export class NetworkMap {
     };
   }
 
-  private routeFocus(): Focus {
-    if (!this.trip || this.sel.length !== 2) return null;
-    const [A, B] = this.sel;
-    const f = { segs: new Set<string>(), dots: new Set<string>(), labels: new Set([A, B]), links: new Set([A, B]), route: true };
-    for (const o of this.trip)
-      for (const g of o.legs) {
-        f.dots.add(`${g.from}.${g.line.id}`); f.dots.add(`${g.to}.${g.line.id}`);
-        // the start and end stations show all their dots, so their bars read as one station
-        for (const k of [g.from, g.to]) if (k === A || k === B) for (const c of this.net.copies) if (c.station === k) f.dots.add(c.id);
-        for (const k of [g.from, g.to]) if (k !== A && k !== B) { f.labels.add(k); f.links.add(k); }
-      }
+  private journeyFocus(): Focus {
+    const j = this.journey!, stops = new Set(j.stops);
+    // picked journey: one dot per stop; at a change of train, the two dots used, joined by a short bar (see
+    // buildRoute). The stations' full bars stay faded.
+    const f = { segs: new Set<string>(), dots: new Set<string>(), labels: stops, links: new Set<string>(), route: true };
+    const has = new Set<string>(), changes = new Set(j.key);
+    if (j.colorBy === "line") {
+      // options: every used dot of every stop, and the station bars where options change train or switch lines
+      const lines = new Map<string, Set<string>>();
+      for (const p of j.pieces)
+        if (p.line) for (const k of [p.from, p.to]) {
+          if (stops.has(k)) f.dots.add(`${k}.${p.line}`);
+          let s = lines.get(k); if (!s) lines.set(k, (s = new Set())); s.add(p.line);
+        }
+      for (const [k, s] of lines) if (s.size > 1 || changes.has(k)) f.links.add(k);
+      return f;
+    }
+    for (const p of j.pieces)
+      if (p.line)
+        for (const k of [p.from, p.to])
+          if (stops.has(k) && (!has.has(k) || changes.has(k))) { f.dots.add(`${k}.${p.line}`); has.add(k); }
     return f;
   }
 
   private applyFocus() {
-    const f = this.trip ? this.routeFocus() : this.hoverFocus;
+    const f = this.journey ? this.journeyFocus() : this.hoverFocus;
+    const sel = new Set(this.journey ? this.journey.key : this.sel);
+    // in a journey only the used dots of the key stations are stressed, not every dot of those stations
+    for (const [id, e] of this.dotEls) e.classList.toggle("sel", sel.has(id.split(".")[0]) && (!this.journey || !!f?.dots.has(id)));
     const net = this.g.net;
     net.classList.toggle("dim", !!f && !f.route);
     net.classList.toggle("route", !!f?.route);
     this.g.labels.classList.toggle("dim", !!f);
+    this.g.labels.classList.toggle("journey", !!this.journey);
     for (const [e] of this.segEls) e.classList.toggle("hl", !!f?.segs.has(e.dataset.line!));
     for (const [id, d] of this.dotEls) d.classList.toggle("hl", !!f?.dots.has(id));
     for (const [pair, , s] of this.linkEls) pair.forEach((e) => e.classList.toggle("hl", !!f?.links.has(s)));
     for (const [id, t] of this.lblEls) {
       t.classList.toggle("hl", !!f?.labels.has(id));
-      t.classList.toggle("sel", this.sel.includes(id));
+      t.classList.toggle("sel", sel.has(id));
     }
   }
 

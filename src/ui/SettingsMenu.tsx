@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Lang } from "../data/types";
-import { SIZE_MAX, SIZE_MIN, type Settings } from "../core/settings";
+import { MIN_CHANGE_MAX, SIZE_MAX, SIZE_MIN, type Settings } from "../core/settings";
 
 type Props = { settings: Settings; onChange(s: Settings): void };
 const LANGS: { v: Lang | "off"; label: string }[] = [
@@ -9,7 +9,9 @@ const LANGS: { v: Lang | "off"; label: string }[] = [
   { v: "off", label: "Off" },
 ];
 
-/** Gear button with a small panel: label & dot size, station-name language. */
+const CHANGES = [{ v: 0, label: "Direct" }, { v: 1, label: "1" }, { v: 2, label: "2" }];
+
+/** Gear button with a small panel: station-name language, label & dot size, and the trip planner's limits. */
 export function SettingsMenu({ settings, onChange }: Props) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
@@ -46,6 +48,21 @@ export function SettingsMenu({ settings, onChange }: Props) {
             <span>Label &amp; dot size <b>{settings.size}px</b></span>
             <input type="range" min={SIZE_MIN} max={SIZE_MAX} step={1} value={settings.size}
               onChange={(e) => onChange({ ...settings, size: +e.target.value })} />
+          </label>
+          <div className="sep-h">Trip planner</div>
+          <div className="field">
+            <span>Most changes</span>
+            <div className="seg" role="radiogroup" aria-label="Most changes">
+              {CHANGES.map((c) => (
+                <button key={c.v} role="radio" aria-checked={settings.maxChanges === c.v} className={settings.maxChanges === c.v ? "on" : ""}
+                  onClick={() => onChange({ ...settings, maxChanges: c.v })}>{c.label}</button>
+              ))}
+            </div>
+          </div>
+          <label className="field">
+            <span>Time to change at least <b>{settings.minChange} min</b></span>
+            <input type="range" min={0} max={MIN_CHANGE_MAX} step={1} value={settings.minChange}
+              onChange={(e) => onChange({ ...settings, minChange: +e.target.value })} />
           </label>
           <span className="m small">Saved in this browser.</span>
         </div>

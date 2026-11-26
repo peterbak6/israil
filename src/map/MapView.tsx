@@ -1,9 +1,8 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import type { Basemap, Lang, Network, Tracks } from "../data/types";
-import type { TripOption } from "../core/routing";
-import { NetworkMap } from "./NetworkMap";
+import { NetworkMap, type MapJourney, type MapMe } from "./NetworkMap";
 
-export type MapHandle = { zoomBy(k: number): void; resetZoom(): void };
+export type MapHandle = { zoomBy(k: number): void; resetZoom(): void; fitJourney(): void };
 
 type Props = {
   network: Network;
@@ -13,7 +12,8 @@ type Props = {
   size: number;
   lang: Lang | "off";
   selection: string[];
-  trip: TripOption[] | null;
+  journey: MapJourney | null;
+  me: MapMe | null;
   onStation(id: string): void;
   onBackground(): void;
 };
@@ -36,7 +36,7 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(p, ref) {
     // A map created after the first render (e.g. new data) must start from the current settings,
     // not its defaults: the per-setting effects below only run when that setting changes.
     const q = latest.current;
-    m.setSize(q.size); m.setLang(q.lang); m.setSelection(q.selection, q.trip); m.setT(q.t);
+    m.setSize(q.size); m.setLang(q.lang); m.setSelection(q.selection); m.setJourney(q.journey); m.setMe(q.me); m.setT(q.t);
     map.current = m;
     return () => { m.destroy(); map.current = null; };
   }, [p.network, p.basemap, p.tracks]);
@@ -44,11 +44,14 @@ export const MapView = forwardRef<MapHandle, Props>(function MapView(p, ref) {
   useEffect(() => map.current?.setT(p.t), [p.t]);
   useEffect(() => map.current?.setSize(p.size), [p.size]);
   useEffect(() => map.current?.setLang(p.lang), [p.lang]);
-  useEffect(() => map.current?.setSelection(p.selection, p.trip), [p.selection, p.trip]);
+  useEffect(() => map.current?.setSelection(p.selection), [p.selection]);
+  useEffect(() => map.current?.setJourney(p.journey), [p.journey]);
+  useEffect(() => map.current?.setMe(p.me), [p.me]);
 
   useImperativeHandle(ref, () => ({
     zoomBy: (k) => map.current?.zoomBy(k),
     resetZoom: () => map.current?.resetZoom(),
+    fitJourney: () => map.current?.fitJourney(),
   }));
 
   return <div className="map-host" ref={host} />;

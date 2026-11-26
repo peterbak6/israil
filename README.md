@@ -233,8 +233,12 @@ All coordinates are WGS84 `[lon, lat]`. Schematic positions are pixels of the 11
 
 ### Browser storage
 
-`localStorage["israil.settings.v1"] = { size: number (6–18), lang: "en" | "he" | "off" }`. Invalid or missing
-values fall back to `{ size: 10, lang: "en" }`.
+`localStorage["israil.settings.v1"] = { size: number (6–18), lang: "en" | "he" | "off", maxChanges: 0 | 1 | 2,
+minChange: integer 0–10 }`. Invalid or missing values fall back to `{ size: 10, lang: "en", maxChanges: 2, minChange: 0 }`.
+
+`localStorage["israil.planner.v1"] = { saved: {a, b}[], prefs: { "FROM>TO": station[] }, journeyT: number (0–1) }`:
+saved searches (each covers both directions), the change stations last chosen per direction, and the slider
+position used in journey mode (default 0.9). The user's location is never stored.
 
 ---
 
@@ -244,10 +248,10 @@ Each source changes at a different pace:
 
 | Data | Changes | Kept current by |
 |---|---|---|
-| Train timetable (GTFS) | The Ministry republishes the feed regularly; it covers a limited window ahead | Nightly automatic update *(planned)* |
+| Train timetable (GTFS) | The Ministry republishes the feed often, including changes for the next few days | Nightly automatic update *(planned)*; today `python pipeline/gtfs_timetable.py --refresh` |
 | Station coordinates, stop order | When stations open or services are reorganized | Automatic check, a person approves *(planned)* |
 | Real track (OpenStreetMap) | Rarely: new lines, corrections | Monthly automatic update *(planned)*; today `python pipeline/osm_tracks.py --refresh` |
-| Schematic map (Israel Railways) | A few times a year, with timetable changes | Manual: re-digitize the new map (`detect_circles.py`, then review the assignments in `build_network.py`) |
+| Schematic map (Israel Railways) | A few times a year, with timetable changes | Manual, following [docs/update-schematic-map.md](docs/update-schematic-map.md) (scripted circle detection, assignments by hand with a ready-made prompt) |
 | Natural Earth basemap | Practically never | Nothing to do |
 
 ### Nightly timetable update (planned)
@@ -268,10 +272,10 @@ A Cloudflare scheduled Worker is not used for this: a Worker's memory is too sma
 If the Ministry's server refuses downloads from GitHub's (non-Israeli) runners, the fallback is to run the same
 script on a schedule on a machine in Israel and push the result.
 
-### Safety net in the app (planned)
+### Safety net in the app
 
 The app knows the date range of its timetable (`feed.start`–`feed.end`). A search outside that range says the
-timetable has expired instead of showing trains that may no longer run.
+timetable data has ended instead of showing trains that may no longer run; tomorrow is listed only if covered.
 
 ---
 
@@ -345,32 +349,99 @@ widths and text keep their pixel size, so zooming in gives the map more room, as
 to read the outermost labels (`translateExtent`). The basemap is one SVG group with that transform and
 non-scaling strokes.
 
-### Trip finding (`src/core/routing.ts`)
+### Trip planner (`src/core/journeys.ts`, `src/core/route.ts`, `src/ui/Planner.tsx`)
 
-Uses the lines as drawn, not timetables, and ignores out-of-service lines. It looks for options with 0 transfers,
-then 1, then 2:
+Four steps, all in the left panel (on phones, the top part of the screen, which keeps a fixed height so the map
+never resizes while planning):
 
-- **0 transfers:** lines serving both stations.
-- **1 transfer:** for each pair of lines, the shared station that minimises the total number of stops.
-- **2 transfers:** for each triple of lines, the best transfer pair the same way.
+1. **Search.** From and To fields with station suggestions (English or Hebrew), ⇅ to swap the direction, ☆ to
+   save the search. Tapping stations on the map fills the fields too. Saved searches appear as chips.
+2. **Pick a trip.** A list of today's and tomorrow's journeys, opened at a red "now" line: earlier trains above,
+   later ones below. Each row: departure – arrival, duration, number of changes, and the trains as
+   *number + destination* (`127 Modi'in Center › 667 Be'er Sheva Center`).
+3. **Pick the change stations.** Opening a row lists, for each change, every station where it works, with the
+   arrival, departure and change time; the first (or the one chosen last time for this direction) is ticked.
+   The map shows the chosen journey. "Show stops" lists every stop with its time.
+4. **Go.** Journey mode: everything except the journey fades out, the map zooms to it and the slider moves to the
+   saved journey position (90% by default). The location is requested at this point only. A marker sits on the
+   route, pointing along it, with the time to the next change and, in large type, the time to arrival.
 
-Options with more than `1.25 × best + 2` stops are dropped. Only the ridden part of each line is highlighted;
-labels show only the start, end and transfer stations.
+Only scheduled times from the timetable are shown, never estimates or delays. Below the list the app says when the
+Ministry published the timetable in use (`feed.published`), since a later change (e.g. works cancelled) is not in it. There is no platform information
+(the feed has none) and no minimum change time: every connection is listed with its change time, and the user
+judges whether it is enough.
+
+**Search.** For one service day, the trains of that day and of the days before and after (shifted by ±24 h, for
+trains around midnight) are indexed by station. For each train that can be boarded at the origin, a round-based
+search in the style of RAPTOR finds the earliest arrival with 0, 1 and 2 changes: round 1 rides that train; each
+further round boards, at each station whose arrival improved in the previous round, every later train, and keeps
+an arrival only if it beats the best one at that station. Nothing later than the best arrival at the destination,
+or more than 24 hours after setting off, is followed. Waiting at a change is deliberately not capped: with a cap,
+arriving later at a station could open up a train that arriving earlier could not, and this pruning would lose
+journeys. Today and tomorrow together take about 100–200 ms for one station pair.
+
+**Pareto filter.** A journey is dropped if another one leaves at the same time or later, arrives at the same time
+or earlier and has no more changes. This removes slow detours and trains you would only take to wait somewhere.
+Today's list is also checked against tomorrow's, so a late journey that only arrives by waiting overnight is
+dropped when tomorrow morning's train gets there as early.
+
+**Tests** (`tests/search-completeness.test.ts`): a brute-force search with no pruning lists every journey with up
+to two changes on the real timetable (several station pairs, a weekday, a Friday and the feed's first day); each
+must be matched by a listed journey at least as good. A small hand-made timetable reproduces a known real case
+(Kfar Yehoshua 15:01 → Hof HaCarmel, train 419 → Be'er Sheva North 17:56, one change) and checks the four Haifa
+change stations offered.
+
+**Change stations.** A journey is a sequence of trains; departure and arrival are fixed by the first and last
+train, but the change can often happen at several stations (e.g. any of the four Tel Aviv stations). All valid
+combinations are listed in riding order; picking a station in one slot keeps the other slots where possible.
+
+**On the map.** Each leg's stops are joined along the map's line segments (shortest path, preferring to stay on one
+line; each train starts on the line with most of its stops). These pieces use the same 64-point segment geometry as
+the lines, so the journey morphs with the slider. Where no map line joins two consecutive stops, a dotted chord is
+drawn.
+
+**Position marker.** The GPS position is snapped to the nearest point of the journey's real-world shape (station →
+OSM track → station), giving a piece and a share of its length. Because the segments are resampled by length,
+that share is an index into the 64 points, so the marker can be drawn at any slider position, schematic included.
+It is rotated towards the next points of the route. More than 1 km from the route, it is drawn hollow and the
+panel says how far away the user is. Where a route passes the same track twice, the snap prefers pieces at or
+after the last one, so the marker doesn't jump back.
+
+### What the map shows while planning
+
+Only timetable journeys, never the printed lines on their own (a line on the printed map may not run on the day in
+the list): before a trip is picked, all the ways the listed journeys go (`optionsOf`, in the map lines' colours,
+with the station bars where they change); after, only the picked journey, one colour per train. If the timetable
+can't be loaded, the list says so and the map shows just the two stations.
+
+### Settings that steer the search
+
+In the gear menu: **most changes** (direct only, 1 or 2; default 2) and **time to change at least** (0–10 min;
+default 0). Both are passed to the search (`SearchOpts`); a fixed extra margin at every change keeps the pruning
+exact, and the brute-force tests run with non-default values too. When either differs from the default, the
+list says so above the trips.
+
+### Updating the schematic map
+
+When Israel Railways publishes a new map, follow [docs/update-schematic-map.md](docs/update-schematic-map.md):
+circle detection is scripted; the assignment of circles to stations and lines is done by hand, with a ready-made
+prompt for Claude.
 
 ---
 
 ## App
 
 ```
-src/core/        pure, unit-tested logic: geometry, labels, routing, settings
-src/data/        data types and loading
+src/core/        pure, unit-tested logic: geometry, labels, journeys (timetable search), route (map
+                 path + GPS snapping), planner (saved searches), time (Israel time), settings
+src/data/        data types and loading (network, basemap, tracks, timetable)
 src/map/         NetworkMap (imperative SVG controller) + MapView (React wrapper)
-src/ui/          TripPanel, SettingsMenu
+src/ui/          Planner, StationInput, JourneyPanel, SettingsMenu
 worker/          Cloudflare Worker (only /api/* reaches it)
 tests/           Vitest
 ```
 
-React owns the UI state (slider, settings, selection). `NetworkMap` owns the SVG and updates attributes directly,
+React owns the UI state (slider, settings, search, picked journey, journey mode). `NetworkMap` owns the SVG and updates attributes directly,
 because the slider changes thousands of points per frame. A map created after the first render starts from the
 current settings, so saved settings always apply.
 

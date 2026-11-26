@@ -2,6 +2,7 @@
 
 Usage (standard library only, Python 3.9+):
     python pipeline/gtfs_timetable.py                    # uses/downloads pipeline/sources/israel-public-transportation.zip
+    python pipeline/gtfs_timetable.py --refresh          # downloads the latest feed first (the Ministry republishes it often)
     python pipeline/gtfs_timetable.py path/to/feed.zip
 
 Writes:
@@ -14,7 +15,8 @@ past 24:00 for trips running after midnight, and those are kept as they are (e.g
 
 timetable.json:
 {
-  "feed": {"start": "YYYYMMDD", "end": "YYYYMMDD", "generated": ISO time, "fields": {name: bool}},
+  "feed": {"start": "YYYYMMDD", "end": "YYYYMMDD", "published": "YYYY-MM-DDTHH:MM" (time stamp of calendar.txt
+           in the zip, Israel time: when the Ministry built the feed), "generated": ISO time, "fields": {name: bool}},
   "stations": {key: {"name": str, "name_he": str|null, "lat": num, "lon": num}},  # stations not in network.json
   "services": {service_id: {"days": "1111100", "start": "YYYYMMDD", "end": "YYYYMMDD",
                             "add": [dates], "remove": [dates]}},                 # days: Mon..Sun
@@ -63,11 +65,19 @@ def clean(v):
 
 
 def main():
-    zpath = sys.argv[1] if len(sys.argv) > 1 else os.path.join(SRC, "israel-public-transportation.zip")
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    zpath = args[0] if args else os.path.join(SRC, "israel-public-transportation.zip")
+    if "--refresh" in sys.argv and not args and os.path.exists(zpath):
+        os.replace(zpath, zpath + ".old")  # keep the previous feed until the new one is complete
     if not os.path.exists(zpath):
         print("downloading", FEED_URL, "(~200 MB)")
         os.makedirs(SRC, exist_ok=True)
-        urllib.request.urlretrieve(FEED_URL, zpath)
+        try:
+            urllib.request.urlretrieve(FEED_URL, zpath)
+        except Exception:
+            if os.path.exists(zpath + ".old"):  # download failed: put the previous feed back
+                os.replace(zpath + ".old", zpath)
+            raise
     z = zipfile.ZipFile(zpath)
     net = json.load(open(os.path.join(ROOT, "public", "data", "network.json"), encoding="utf-8"))
     key_of_gtfs = {str(s["gtfs_stop_id"]): s["id"] for s in net["stations"] if s.get("gtfs_stop_id") is not None}
@@ -163,6 +173,7 @@ def main():
     dates = [d for s in services.values() for d in [s["start"], s["end"], *s["add"]] if d]
     data = {
         "feed": {"start": min(dates) if dates else None, "end": max(dates) if dates else None,
+                 "published": "%04d-%02d-%02dT%02d:%02d" % z.getinfo("calendar.txt").date_time[:5],
                  "generated": datetime.now(timezone.utc).isoformat(timespec="seconds"), "fields": fields},
         "stations": extra, "services": services, "trips": out_trips,
     }
