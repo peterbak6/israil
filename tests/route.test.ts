@@ -4,10 +4,15 @@ import type { Network, Tracks } from "../src/data/types";
 import type { Timetable } from "../src/data/timetable";
 import { changeCombos, legsVia, searchDay } from "../src/core/journeys";
 import { NetGraph, optionsOf, pieceShape, pointAlong, routeOf, snapToRoute } from "../src/core/route";
+import { addDays, weekday } from "../src/core/time";
 
 const read = (f: string) => JSON.parse(readFileSync(new URL("../public/data/" + f, import.meta.url), "utf8"));
 const net: Network = read("network.json"), tracks: Tracks = read("tracks.json"), tt: Timetable = read("timetable.json");
 const g = new NetGraph(net);
+// a weekday inside the feed (the first Thursday on or after its start), so the tests keep working
+// when the nightly job brings in a newer timetable
+let THU = tt.feed.start;
+while (weekday(THU) !== 3) THU = addDays(THU, 1);
 
 describe("NetGraph.path", () => {
   it("joins consecutive stations along one line", () => {
@@ -27,15 +32,16 @@ describe("NetGraph.path", () => {
 });
 
 describe("routeOf", () => {
-  const js = searchDay(tt, "20261126", "BIN", "ASK").filter((j) => j.changes === 1);
+  // Karmiel → Jerusalem always needs a change on this network, whatever the timetable
+  const js = searchDay(tt, THU, "KAR", "JNA").filter((j) => j.changes >= 1);
   const j = js[0], combo = changeCombos(j)[0], legs = legsVia(j, combo);
   const r = routeOf(g, legs);
   it("covers every stop, in order, from origin to destination", () => {
-    expect(r.stops[0]).toBe("BIN");
-    expect(r.stops.at(-1)).toBe("ASK");
+    expect(r.stops[0]).toBe("KAR");
+    expect(r.stops.at(-1)).toBe("JNA");
     expect(r.stops).toContain(combo[0].station);
-    expect(r.pieces[0].from).toBe("BIN");
-    expect(r.pieces.at(-1)!.to).toBe("ASK");
+    expect(r.pieces[0].from).toBe("KAR");
+    expect(r.pieces.at(-1)!.to).toBe("JNA");
     for (let k = 1; k < r.pieces.length; k++) expect(r.pieces[k].from).toBe(r.pieces[k - 1].to);
     expect(r.pieces.some((p) => p.line === null)).toBe(false);
   });
@@ -53,7 +59,7 @@ describe("routeOf", () => {
 });
 
 describe("optionsOf", () => {
-  const js = searchDay(tt, "20261126", "YOK", "BSN");
+  const js = searchDay(tt, THU, "YOK", "BSN");
   const all = js.map((j) => legsVia(j, changeCombos(j)[0]));
   const o = optionsOf(g, all);
   it("contains every piece of every listed journey, once", () => {

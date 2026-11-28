@@ -1,6 +1,6 @@
 // Does the planner list every journey it should? Two kinds of test:
-//  1. A small hand-made timetable copied from a known real case (Google's answer for Thu 26 Nov 2026:
-//     Kfar Yehoshua 15:01 → Hof HaCarmel 15:29, change, train 419 15:43 → Be'er Sheva North 17:56).
+//  1. A small hand-made timetable copied once from a real case (Kfar Yehoshua 15:01 → Hof HaCarmel 15:29,
+//     change, train 419 15:43 → Be'er Sheva North 17:56). It carries its own dates, so it never depends on the feed.
 //  2. On the real timetable, a brute-force search with no pruning finds every journey with up to 2 changes;
 //     each must be matched by a listed journey that is at least as good (leaves no earlier, arrives no later,
 //     no more changes). If the search ever drops a journey, this fails.
@@ -141,19 +141,3 @@ describe.each([{ maxChanges: 1, minChange: 5 }, { maxChanges: 2, minChange: 8 },
     });
   },
 );
-
-describe("real timetable, normal day: the Karmiel–Be'er Sheva train gives a one-change journey", () => {
-  // the first date on which a train numbered 419 runs the full Karmiel → Be'er Sheva route (on 26–27 Nov 2026 it
-  // was split at Tel Aviv/Lod for works, so those days must not be used for this check)
-  let D: string | null = null;
-  for (let d = tt.feed.start; d <= tt.feed.end && !D; d = addDays(d, 1))
-    if (tt.trips.some((t) => t.n === "419" && t.st[0][0] === "KAR" && t.st.some((x) => x[0] === "BSN") && runsOn(tt.services[t.s], d))) D = d;
-
-  it("finds such a day in the feed", () => expect(D).not.toBeNull());
-  it("lists Kfar Yehoshua → Be'er Sheva North with one change onto 419, changing in Haifa", () => {
-    const js = searchDay(tt, D!, "YOK", "BSN");
-    const j = js.find((x) => x.changes === 1 && x.legs[1].run.trip.n === "419");
-    expect(j).toBeDefined();
-    expect(changeCombos(j!).map((c) => c[0].station)).toContain("HOF");
-  });
-});

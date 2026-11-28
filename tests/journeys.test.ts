@@ -87,7 +87,8 @@ describe("pareto", () => {
 });
 
 describe("change stations", () => {
-  const js = searchDay(tt, THU, "BIN", "ASK").filter((j) => j.changes === 1);
+  // Karmiel → Jerusalem cannot be done without a change on this network, whatever the timetable
+  const js = searchDay(tt, THU, "KAR", "JNA").filter((j) => j.changes >= 1);
   it("lists every feasible change station in riding order", () => {
     expect(js.length).toBeGreaterThan(0);
     for (const j of js) {
@@ -98,7 +99,7 @@ describe("change stations", () => {
       for (const c of combos) {
         expect(c[0].dep).toBeGreaterThanOrEqual(c[0].arr + MIN_CHANGE);
         const legs = legsVia(j, c);
-        checkValid({ ...j, legs }, "BIN", "ASK");
+        checkValid({ ...j, legs }, "KAR", "JNA");
         expect(stationsOf({ ...j, legs })[0][1]).toBe(c[0].station);
       }
     }
