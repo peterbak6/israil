@@ -22,7 +22,8 @@ pipeline (section 2).
 
 ### 1.1 Schematic map
 
-- **What:** the Israel Railways "lines & stations" map, valid from 14 Nov 2026 (image from rail.co.il).
+- **What:** the Israel Railways "lines & stations" map, valid from 14 Nov 2026, from
+  [rail.co.il/?page=linesmap](https://rail.co.il/?page=linesmap).
 - **Used for:** station positions on the schematic, which stations each line serves and in what order, label sides.
 - **Licence:** © Israel Railways. The image is not in the repository, only the digitized layout. Permission from
   Israel Railways is needed before the site is made public.
@@ -282,17 +283,21 @@ The location is asked for only when a trip is started, used on the device and ne
 
 ## 4. Interaction
 
-The header (title, undo ↺, settings ⚙) is on every page. Dots at the bottom show the page; tap them, or swipe
-sideways on a page (phone).
+The header (title, undo ↺, settings ⚙) is on every page.
 
-- **Phone:** three pages, one task each: Favourites · **Map** (opens first) · Trips.
-- **Desktop:** the map is always visible, next to a panel with two pages: Favourites · **Plan**.
+- **Phone:** three pages, one task each, opened from buttons in the header: ★ Favourites · **Map** (opens first) ·
+  🕒 Timetable. The open page is marked; swiping sideways on a page also moves between them. Tapping two stations on
+  the map keeps the map open, so the choice and the route options can be checked; the timetable button pulses twice
+  when the trips are ready. Opening a favourite goes straight to the timetable.
+- **Desktop:** the map is always visible, next to a panel: the favourites (with the station fields) while nothing
+  is selected, the trips as soon as a station is picked. No page buttons.
 
 ### 4.1 Selecting
 
 - **Slider:** schematic ⇄ geographic.
-- **Zoom:** + and − (two steps: 1×, 2×, 4×), pinch or wheel. **Pan** by dragging; the centre of the network always
-  stays on screen.
+- **Zoom:** + and − (two steps: 1×, 2×, 4×), pinch or wheel. **Pan** by dragging, until the edge of the network
+  (with room for its labels) reaches the edge of the screen: every station can be reached, and the network never
+  leaves the screen. The limit follows the slider, since the schematic is wider than the geography.
 - **Hover** a line to highlight it with its stations; hover a station to highlight every line through it.
 - **Tap a station** (dot or label): the first is From, the second To. A chip at the top shows the selection.
 - **Undo** (↺, the chip's ✕, double tap on empty map space, or Esc) goes back one step: ends a trip, else unpicks
@@ -348,7 +353,7 @@ src/core/    logic with unit tests: geometry, labels, journeys (search), route (
              planner (favourites), time (Israel time), settings
 src/data/    data types and loading
 src/map/     NetworkMap (draws and updates the SVG directly) + MapView (React wrapper)
-src/ui/      Planner, StationInput, Favorites, JourneyPanel, SettingsMenu, StageDots
+src/ui/      Planner, StationInput, Favorites, JourneyPanel, SettingsMenu, PageNav
 worker/      Cloudflare Worker (only /api/* reaches it)
 pipeline/    data scripts (section 2)
 tests/       Vitest

@@ -95,7 +95,7 @@ export class NetworkMap {
   private placeXY: Pt[] = [];
   private cityKey = "";
   /** centre of the drawn network at the current slider value (pre-zoom): panning keeps it on screen */
-  private center: Pt = [0, 0];
+  private bounds: [number, number, number, number] = [0, 0, 0, 0]; // network box at the current t, pre-zoom
   private lastBgTap = { t: 0, x: 0, y: 0 };
   private probe: SVGTextElement | null = null;
   private ro: ResizeObserver;
@@ -121,7 +121,7 @@ export class NetworkMap {
     host.appendChild(this.meLbl);
     this.build();
 
-    // Zoom: two steps (1x, 2x, 4x). Panning keeps the centre of the network on screen (see constrain()).
+    // Zoom: two steps (1x, 2x, 4x). Panning stops where the network's edge reaches the screen's edge (see constrain()).
     this.zoomer = zoom<SVGSVGElement, unknown>()
       .scaleExtent([1, ZOOM_MAX])
       .clickDistance(5)
@@ -152,8 +152,8 @@ export class NetworkMap {
   // ---------- public API ----------
   setT(t: number) {
     this.t = t;
-    this.updateCenter();
-    select(this.svg).call(this.zoomer.transform, this.view); // re-apply the pan limit for the new centre (renders)
+    this.updateBounds();
+    select(this.svg).call(this.zoomer.transform, this.view); // re-apply the pan limit for the new box (renders)
   }
   setSize(fs: number) {
     if (fs !== this.fs) this.textW.clear();
@@ -295,7 +295,7 @@ export class NetworkMap {
     }
     this.placeXY = this.places.map((p) => fG(project(p.lon, p.lat)));
     this.cityKey = "";
-    this.updateCenter();
+    this.updateBounds();
     select(this.svg).call(this.zoomer.transform, this.view); // re-clamp the current view to the new size
     const path = (r: Ring) => "M" + r.map(([lo, la]) => fG(project(lo, la)).map((v) => v.toFixed(1)).join(",")).join("L");
     const b = this.base;
@@ -415,24 +415,31 @@ export class NetworkMap {
     this.drawCities();
   }
 
-  /** Centre of the network's bounding box as drawn at the current slider value (pre-zoom). */
-  private updateCenter() {
+  /** The network's bounding box as drawn at the current slider value (pre-zoom). */
+  private updateBounds() {
     if (!this.A.size) return;
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     for (const c of this.net.copies) {
       const p = lerp(this.A.get(c.id)!, this.B.get(c.id)!, this.t);
       x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); y0 = Math.min(y0, p[1]); y1 = Math.max(y1, p[1]);
     }
-    this.center = [(x0 + x1) / 2, (y0 + y1) / 2];
+    this.bounds = [x0, y0, x1, y1];
   }
 
-  /** Pan limit: the centre of the network stays on screen (below the slider bar), at every zoom level. */
+  /** Pan limit, per axis, on the network's box plus room for labels (same margins as the fit; labels keep their
+   *  screen size, so the margins are in screen pixels). Zoomed in, when the box is bigger than the screen, it can
+   *  be panned until its edge reaches the screen's edge, so every station can be reached and the network never
+   *  leaves the screen. When the box is smaller than the screen, it stays fully inside. The area under the
+   *  slider bar does not count as screen. */
   private constrain(tr: ZoomTransform): ZoomTransform {
-    const w = this.host.clientWidth, h = this.host.clientHeight, m = 24, TOP = 56;
+    const w = this.host.clientWidth, h = this.host.clientHeight, TOP = 56, padY = 28;
     if (!w || !h) return tr;
-    const [cx, cy] = this.center, k = tr.k;
-    const x = Math.min(w - m - k * cx, Math.max(m - k * cx, tr.x));
-    const y = Math.min(h - m - k * cy, Math.max(TOP + m - k * cy, tr.y));
+    const padX = Math.max(padY, Math.min(90, w * 0.14)); // as in fitter()
+    const [x0, y0, x1, y1] = this.bounds, k = tr.k;
+    const clamp = (v: number, a: number, b: number) => Math.min(Math.max(a, b), Math.max(Math.min(a, b), v));
+    // a: the box's near edge sits on the screen's near edge; b: its far edge on the far edge
+    const x = clamp(tr.x, padX - k * x0, w - padX - k * x1);
+    const y = clamp(tr.y, TOP + padY - k * y0, h - padY - k * y1);
     return x === tr.x && y === tr.y ? tr : zoomIdentity.translate(x, y).scale(k);
   }
 

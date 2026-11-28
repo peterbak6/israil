@@ -13,7 +13,8 @@ Everything about trains (timetable, coordinates, track) is data and is refreshed
 
 ## Steps
 
-1. Save the new map as a PNG (e.g. `pipeline/sources/map_2027-03.png`; images are not committed).
+1. Download the new map from [rail.co.il/?page=linesmap](https://rail.co.il/?page=linesmap) and save it as a PNG
+   (e.g. `pipeline/sources/map_2027-03.png`; images are not committed).
 2. Detect the circles and look at the numbered overlay:
 
    ```bash

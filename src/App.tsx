@@ -10,9 +10,9 @@ import { easeInOut } from "./core/geometry";
 import { MapView, type MapHandle } from "./map/MapView";
 import type { MapJourney, MapMe } from "./map/NetworkMap";
 import { SettingsMenu } from "./ui/SettingsMenu";
-import { Planner, type Pick } from "./ui/Planner";
+import { OdFields, Planner, type Pick } from "./ui/Planner";
 import { Favorites } from "./ui/Favorites";
-import { StageDots, type Screen, type Stage } from "./ui/StageDots";
+import { PageNav, type Screen } from "./ui/PageNav";
 import { JourneyPanel } from "./ui/JourneyPanel";
 import { loadSettings, saveSettings, type Settings } from "./core/settings";
 
@@ -38,10 +38,13 @@ export default function App() {
   const [now, setNow] = useState(() => israelNow());
   const [pos, setPos] = useState<{ lon: number; lat: number } | null>(null);
   // Pages. Phone: 1 map, 2 favourites, 3 trips (replaced by the trip in progress after the start button); each
-  // its own screen, and the map shows the current selection, options or trip. Desktop: the map is always visible;
-  // pages are Plan (3) and Favourites (2).
+  // its own screen, opened from the buttons in the header, and the map shows the current selection, options or
+  // trip. Desktop: the map is always visible; the side panel shows the favourites while nothing is selected and
+  // the trips once a station is picked.
   const desktop = useDesktop();
-  const [screen, setScreen] = useState<Screen>(() => (window.matchMedia(DESKTOP).matches ? 3 : 1));
+  const [screen, setScreen] = useState<Screen>(1);
+  // counts up when trips for newly selected stations are ready, to make the timetable button pulse (phone)
+  const [pulse, setPulse] = useState(0);
   // day and time the trip list is for; null = today / now
   const [whenSel, setWhenSel] = useState<{ date: string | null; min: number | null }>({ date: null, min: null });
   // the list's day; frozen during a journey so passing midnight doesn't drop the journey
@@ -120,8 +123,14 @@ export default function App() {
   const shapes = useMemo(() => (route && data ? route.pieces.map((p) => pieceShape(data.network, data.tracks, p)) : null), [route, data]);
 
   const changeOd = (next: Od) => { setOd(next); setPick(null); };
-  /** Picking stations (map, fields or a favourite): once both are set, the trips stage opens. */
+  /** Opening a favourite: a deliberate choice of both stations, so on the phone the trips page opens. (A tap on
+   *  the map does not open it: the rider stays on the map to check the choice, and the timetable button pulses.) */
   const chooseOd = (next: Od) => { changeOd(next); if (next.from && next.to && next.from !== next.to) setScreen(3); };
+  const readyKey = mode === "plan" && days && od.from && od.to ? `${od.from}>${od.to}` : null;
+  useEffect(() => {
+    if (readyKey && !desktop && screen !== 3) setPulse((n) => n + 1);
+  }, [readyKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (screen === 3) setPulse(0); }, [screen]); // seen: no pulse when coming back to another page
   /** Move the slider smoothly to `to` (used when a journey starts). */
   const glide = (from: number, to: number, ms = 2500) => {
     cancelAnimationFrame(anim.current);
@@ -232,17 +241,15 @@ export default function App() {
   const setSlider = (v: number) => { cancelAnimationFrame(anim.current); setT(v); };
   const complete = !!od.from && !!od.to;
   const odProps = { od, onOd: chooseOd, stations: served, name, store, onToggleSaved: () => setStore((s) => toggleSaved(s, od)) };
-  const page: Screen = desktop ? (screen === 2 ? 2 : 3) : screen;
-  const stages: Stage[] = desktop
-    // order of the dots: favourites on the left, so the map and the trips (plan) sit next to each other
-    ? [{ s: 2, label: "Favourites", enabled: true }, { s: 3, label: "Plan", enabled: true }]
-    : [{ s: 2, label: "Favourites", enabled: true }, { s: 1, label: "Map", enabled: true },
-      { s: 3, label: mode === "go" ? "Trip in progress" : "Trips", enabled: true }];
+  // desktop: favourites until a station is picked, then the trips (and the trip in progress)
+  const page: Screen = desktop ? (mode === "go" || od.from || od.to ? 3 : 2) : screen;
+  const pages: { s: Screen; label: string }[] = [{ s: 2, label: "Favourites" }, { s: 1, label: "Map" },
+    { s: 3, label: mode === "go" ? "Trip in progress" : "Timetable" }];
   // phone: swipe left/right on a page (not on the map, where dragging pans) to go to the next/previous page
   const onSwipeEnd = (x: number, y: number) => {
     const st = swipe.current; swipe.current = null;
     if (desktop || !st || Math.abs(x - st.x) < 70 || Math.abs(x - st.x) < 2 * Math.abs(y - st.y)) return;
-    const order = stages.filter((g) => g.enabled).map((g) => g.s), i = order.indexOf(page);
+    const order = pages.map((g) => g.s), i = order.indexOf(page);
     const next = order[i + (x < st.x ? 1 : -1)];
     if (next) setScreen(next);
   };
@@ -259,12 +266,18 @@ export default function App() {
             title={mode === "go" ? "End the trip" : pick ? "Unpick the trip" : "Clear the stations"}>
             <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" d="M4 4v6h6M4.6 15a8 8 0 1 0 1.9-8.3L4 10" /></svg>
           </button>
+          {!desktop && <PageNav page={page} items={pages} onPage={setScreen} pulse={pulse} />}
           <SettingsMenu settings={settings} onChange={setSettings} />
         </div>
       </header>
       <aside ref={asideRef} onTouchStart={(e) => { swipe.current = { x: e.touches[0].clientX, y: e.touches[0].clientY }; }}
         onTouchEnd={(e) => onSwipeEnd(e.changedTouches[0].clientX, e.changedTouches[0].clientY)}>
-        {page === 2 ? (
+        {page === 2 && desktop ? (
+          <>
+            <OdFields {...odProps} onOd={changeOd} />
+            <Favorites store={store} name={name} onOpen={changeOd} onRemove={(a, b) => setStore((s) => toggleSaved(s, { from: a, to: b }))} />
+          </>
+        ) : page === 2 ? (
           <Favorites store={store} name={name} onOpen={chooseOd} onRemove={(a, b) => setStore((s) => toggleSaved(s, { from: a, to: b }))} />
         ) : mode === "go" && legs && live && pick && page === 3 ? (
           <JourneyPanel ymd={pick.ymd} legs={legs} name={name} leg={live.leg} onEnd={end} />
@@ -277,11 +290,10 @@ export default function App() {
         ) : null}
         <div className="credit">© 2026 Peter Bak · <a href="https://visualanalytics.co.il" target="_blank" rel="noopener">VisualAnalytics</a></div>
       </aside>
-      <StageDots screen={page} stages={stages} onScreen={setScreen} />
       <main className={t >= 1 ? "geo" : "schem"}>
         <MapView ref={mapRef} network={data.network} basemap={data.basemap} tracks={data.tracks} places={data.places} t={t} size={settings.size} lang={settings.lang}
           selection={selection} journey={mapJourney ?? options} me={mode === "go" ? me : null}
-          onStation={(id) => { if (mode === "plan") chooseOd(nextOd(od, id)); }}
+          onStation={(id) => { if (mode === "plan") changeOd(nextOd(od, id)); }}
           onBackground={clear} />
         <div className="morph">
           <span>Schematic</span>
